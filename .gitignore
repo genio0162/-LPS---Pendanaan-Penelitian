@@ -1,0 +1,15 @@
+node_modules
+.next
+out
+build
+.DS_Store
+*.pem
+
+# env — JANGAN pernah commit kunci API
+.env
+.env*.local
+.env.production
+
+.vercel
+*.tsbuildinfo
+next-env.d.ts

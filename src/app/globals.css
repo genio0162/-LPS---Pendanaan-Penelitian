@@ -1,0 +1,231 @@
+@import "tailwindcss";
+
+/* ==================================================================
+   Sistem desain — diambil persis dari berkas rancangan
+   "Unggah Proposal.dc.html" dan "Admin Fine-Tuner.dc.html".
+   Dua tema: gelap (bawaan) dan terang.
+   ================================================================== */
+
+@theme {
+  --font-sans: -apple-system, "SF Pro Text", "Geist", "Helvetica Neue", system-ui, sans-serif;
+  --font-display: -apple-system, "SF Pro Display", "Geist", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Geist Mono", Menlo, monospace;
+}
+
+:root,
+[data-tema="gelap"] {
+  --bg: #141414;
+  --fg: #f5f5f7;
+  --fg2: #e8e8ed;
+  --fg3: #d2d2d7;
+  --mute: #a1a1a6;
+  --mute2: #86868b;
+  --mute3: #6e6e73;
+  --accent: #ffc629;
+  --accent-soft: #ffe9a8;
+  --panel: rgb(255 255 255 / 0.05);
+  --panel2: rgb(255 255 255 / 0.07);
+  --line: rgb(255 255 255 / 0.1);
+  --line2: rgb(255 255 255 / 0.14);
+  --modal: rgb(22 22 24 / 0.92);
+  --overlay: rgb(0 0 0 / 0.72);
+  --btn-fg: #141414;
+  --field: rgb(0 0 0 / 0.35);
+  --side: rgb(255 255 255 / 0.025);
+  --ok: #9fe9c2;
+  --warn: #ffc0be;
+  --val: #bbd3f2;
+  --danger: #ffb4b4;
+  color-scheme: dark;
+}
+
+[data-tema="terang"] {
+  --bg: #f4f7fc;
+  --fg: #1d1d1f;
+  --fg2: #2b2b30;
+  --fg3: #3f3f46;
+  --mute: #5b6170;
+  --mute2: #6e7482;
+  --mute3: #8a909c;
+  --accent: #9a6b00;
+  --accent-soft: #6b4a00;
+  --panel: rgb(255 255 255 / 0.62);
+  --panel2: rgb(255 255 255 / 0.8);
+  --line: rgb(30 50 90 / 0.12);
+  --line2: rgb(30 50 90 / 0.18);
+  --modal: rgb(255 255 255 / 0.9);
+  --overlay: rgb(230 236 248 / 0.72);
+  --btn-fg: #1d1d1f;
+  --field: rgb(255 255 255 / 0.7);
+  --side: rgb(255 255 255 / 0.5);
+  --ok: #1e7a4a;
+  --warn: #b3261e;
+  --val: #2f5fb3;
+  --danger: #b3261e;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.4s ease, color 0.4s ease;
+  overflow-x: hidden;
+}
+
+/* Lapisan awan/kisi di belakang konten. */
+.awan {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+
+[data-tema="gelap"] .awan {
+  background: radial-gradient(60% 50% at 50% 30%, rgb(255 198 41 / 0.07), transparent 70%);
+}
+
+[data-tema="terang"] .awan {
+  background:
+    radial-gradient(42% 38% at 18% 22%, rgb(150 175 235 / 0.55), transparent 70%),
+    radial-gradient(38% 42% at 78% 18%, rgb(130 160 230 / 0.5), transparent 70%),
+    radial-gradient(50% 40% at 55% 70%, rgb(170 190 240 / 0.4), transparent 72%),
+    repeating-linear-gradient(0deg, rgb(30 50 90 / 0.035) 0 1px, transparent 1px 96px),
+    repeating-linear-gradient(90deg, rgb(30 50 90 / 0.035) 0 1px, transparent 1px 96px);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
+}
+
+::placeholder {
+  color: var(--mute3);
+}
+
+/* ---------------------- Animasi ---------------------- */
+
+@keyframes holo {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 300% 50%;
+  }
+}
+
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dropIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.9);
+  }
+  60% {
+    transform: translateY(2px) scale(1.03);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ripple {
+  from {
+    opacity: 0.55;
+    transform: scale(0.35);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.rise-in {
+  animation: riseIn 0.6s ease both;
+}
+.drop-in {
+  animation: dropIn 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+/* Pita progres holografis pada modal pemrosesan. */
+.holo {
+  background: linear-gradient(90deg, #ffc629, #ff7a1a, #e84fa8, #8b5cf6, #23d3e8, #ffc629);
+  background-size: 300% 100%;
+  animation: holo 2.4s linear infinite;
+}
+
+/* Bilah gulir yang menyatu dengan panel. */
+.rapi-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+.rapi-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.rapi-scroll::-webkit-scrollbar-thumb {
+  background: var(--line2);
+  border-radius: 999px;
+}
+.rapi-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

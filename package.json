@@ -1,0 +1,36 @@
+{
+  "name": "lps-pendanaan-penelitian",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Portal evaluasi proposal Program Pendanaan Penelitian LPS - FEB UI (KAK-1/GRIS/2026, poin 7-8.3)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "verifikasi": "tsx scripts/verifikasi.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
+    "@neondatabase/serverless": "^1.1.0",
+    "@vercel/blob": "^2.8.0",
+    "exceljs": "^4.4.0",
+    "framer-motion": "^13.3.0",
+    "next": "^16.3.5",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "unpdf": "^1.8.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "dotenv": "^16.6.1",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.13",
+    "typescript": "^5.7.0"
+  }
+}
