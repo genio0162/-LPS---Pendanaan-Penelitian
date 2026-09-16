@@ -110,16 +110,61 @@ function tebakJudul(halamanPertama: string): string {
   return baris.reduce((a, b) => (b.length > a.length ? b : a), "");
 }
 
-/** Menurunkan nama tim dari nama berkas, mengikuti pola berkas FEB UI 2026. */
+/**
+ * Menurunkan nama tim dari nama berkas, mengikuti pola berkas FEB UI 2026:
+ * "Proposal (Accepted)_FEB UI_2026_Umum_Riyanto_Fintech vs Bank.pdf"
+ *
+ * Mengembalikan string kosong bila polanya tidak dikenali. Nama tim lalu diisi
+ * oleh model dari isi dokumen — lebih baik daripada menebak dari potongan nama
+ * berkas yang belum tentu berisi nama peneliti.
+ */
 export function tebakNamaTim(namaBerkas: string): string {
   const dasar = namaBerkas.replace(/\.pdf$/i, "");
   const bagian = dasar.split("_").map((s) => s.trim()).filter(Boolean);
 
-  // Pola: "Proposal (Accepted)_FEB UI_2026_Umum_Riyanto_Fintech vs Bank"
   const iTema = bagian.findIndex((b) => /^(umum|khusus)$/i.test(b));
   if (iTema >= 0 && bagian[iTema + 1]) {
     const tema = /khusus/i.test(bagian[iTema]) ? "Tema Khusus" : "Tema Umum";
     return `${bagian[iTema + 1]} (${tema})`;
   }
-  return bagian.length > 1 ? bagian[bagian.length - 2] : dasar;
+  return "";
+}
+
+/**
+ * Membuat PDF kecil berisi HANYA halaman yang tidak punya lapisan teks.
+ *
+ * Melampirkan seluruh PDF ke model itu mahal: satu halaman PDF native berharga
+ * sekitar 1.500-3.000 token karena diproses sebagai gambar. Pada proposal 42
+ * halaman dengan 3 halaman pindaian, mengirim semuanya berarti membayar ~84.000
+ * token untuk memperoleh isi 3 halaman. Menyaring lebih dulu memangkasnya
+ * menjadi sekitar 6.000 token tanpa kehilangan informasi apa pun.
+ *
+ * Mengembalikan null bila tidak ada halaman pindaian atau penyalinan gagal —
+ * pemanggil lalu melanjutkan dengan jalur teks saja.
+ */
+export async function pdfHalamanTerpilih(
+  buffer: ArrayBuffer,
+  halaman: number[],
+): Promise<Uint8Array | null> {
+  if (!halaman.length) return null;
+  try {
+    const { PDFDocument } = await import("pdf-lib");
+    const sumber = await PDFDocument.load(buffer, { ignoreEncryption: true });
+    const total = sumber.getPageCount();
+
+    // Nomor halaman dari ekstraksi berbasis 1; pdf-lib berbasis 0.
+    const indeks = halaman
+      .map((h) => h - 1)
+      .filter((i) => i >= 0 && i < total)
+      .sort((a, b) => a - b);
+    if (!indeks.length) return null;
+
+    const keluaran = await PDFDocument.create();
+    const disalin = await keluaran.copyPages(sumber, indeks);
+    for (const p of disalin) keluaran.addPage(p);
+    return await keluaran.save();
+  } catch (e) {
+    console.error("Gagal menyaring halaman pindaian:", e);
+    return null;
+  }
 }

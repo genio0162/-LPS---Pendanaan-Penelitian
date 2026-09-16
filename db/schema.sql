@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS dokumen (
 CREATE INDEX IF NOT EXISTS dokumen_batch_idx ON dokumen (batch_id);
 
 -- ---------------------------------------------------------------------
--- 3. Hasil evaluasi 17 komponen KAK (poin 7 - 8.3)
+-- 3. Hasil evaluasi kriteria screening KAK (poin 7 - 8.3)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS hasil_evaluasi (
   id            SERIAL PRIMARY KEY,

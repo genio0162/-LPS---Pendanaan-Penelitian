@@ -1,21 +1,21 @@
 import { NextResponse } from "next/server";
-import { analisisKomponen, analisisRuangLingkup } from "@/lib/claude";
+import { analisisKomponen, analisisRuangLingkup, type LampiranPindaian } from "@/lib/claude";
 import { ambilPetaHeuristik, pastikanSkema, sql } from "@/lib/db";
 
 export const runtime = "nodejs";
 // Analisis satu segmen pada proposal 40 halaman bisa berjalan beberapa menit.
 export const maxDuration = 300;
 
-type Segmen = "tema_tim" | "struktur" | "ruang_lingkup";
-const SEGMEN_SAH: Segmen[] = ["tema_tim", "struktur", "ruang_lingkup"];
+type Segmen = "kriteria" | "ruang_lingkup";
+const SEGMEN_SAH: Segmen[] = ["kriteria", "ruang_lingkup"];
 
 /**
  * Tahap 2 — satu permintaan menangani satu segmen analisis untuk satu dokumen.
  *
- * Pembagian per segmen membuat tiap panggilan tetap di bawah batas durasi fungsi,
- * memberi progres yang jujur kepada pengguna, dan menaikkan ketelitian karena
- * perhatian model tidak terbagi ke 17 komponen sekaligus. Teks dokumen di-cache
- * di sisi Anthropic sehingga segmen kedua dan ketiga jauh lebih murah.
+ * Dua segmen saja: "kriteria" menilai seluruh 19 kriteria screening sekaligus,
+ * "ruang_lingkup" menyalin tujuan dan ruang lingkup penelitian. Teks dokumen
+ * adalah bagian termahal dari permintaan, jadi ia dikirim sesedikit mungkin —
+ * memecah penilaian menjadi lebih banyak panggilan justru membayarnya berulang.
  */
 export async function POST(req: Request) {
   try {
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
 
     const q = sql();
     const baris = (await q`
-      SELECT id, teks, nama_berkas, nama_tim, judul, file_id
+      SELECT id, teks, nama_berkas, nama_tim, judul, file_id, halaman_kosong
       FROM dokumen WHERE id = ${docId}`) as {
       id: string;
       teks: string;
@@ -42,6 +42,7 @@ export async function POST(req: Request) {
       nama_tim: string | null;
       judul: string | null;
       file_id: string | null;
+      halaman_kosong: number[] | null;
     }[];
 
     const dok = baris[0];
@@ -51,8 +52,14 @@ export async function POST(req: Request) {
 
     const peta = await ambilPetaHeuristik();
 
+    // Lampiran hanya berisi halaman pindaian; nomor halaman asli ikut dikirim
+    // supaya model bisa memetakan kembali rujukan halamannya.
+    const lampiran: LampiranPindaian | null = dok.file_id
+      ? { fileId: dok.file_id, halaman: dok.halaman_kosong ?? [] }
+      : null;
+
     if (segmen === "ruang_lingkup") {
-      const hasil = await analisisRuangLingkup(dok.teks, peta, dok.file_id);
+      const hasil = await analisisRuangLingkup(dok.teks, lampiran);
 
       const fieldIds = hasil.ruang_lingkup.map((r) => r.field_id);
       const fieldNama = hasil.ruang_lingkup.map((r) => r.field_nama);
@@ -65,21 +72,26 @@ export async function POST(req: Request) {
         ON CONFLICT (doc_id, field_id) DO UPDATE
           SET field_nama = EXCLUDED.field_nama, nilai = EXCLUDED.nilai`;
 
+      // Nama tim dari pola nama berkas bersifat deterministik dan sudah benar,
+      // jadi ia menang; nilai dari model hanya mengisi bila kolomnya masih kosong.
+      // Judul sebaliknya: model membacanya dari isi dokumen, lebih tepercaya
+      // daripada tebakan baris terpanjang di halaman sampul.
       await q`
         UPDATE dokumen
-        SET nama_tim = COALESCE(NULLIF(${hasil.nama_tim}, ''), nama_tim),
+        SET nama_tim = COALESCE(NULLIF(nama_tim, ''), NULLIF(${hasil.nama_tim}, '')),
             judul    = COALESCE(NULLIF(${hasil.judul}, ''), judul)
         WHERE id = ${docId}`;
 
       return NextResponse.json({
         segmen,
-        namaTim: hasil.nama_tim || dok.nama_tim,
+        namaTim: dok.nama_tim || hasil.nama_tim,
         judul: hasil.judul || dok.judul,
         jumlah: hasil.ruang_lingkup.length,
+        pemakaian: hasil.pemakaian,
       });
     }
 
-    const evaluasi = await analisisKomponen(segmen, dok.teks, peta, dok.file_id);
+    const { evaluasi, pemakaian } = await analisisKomponen(dok.teks, peta, lampiran);
 
     await q`
       INSERT INTO hasil_evaluasi
@@ -102,7 +114,7 @@ export async function POST(req: Request) {
         kutipan   = EXCLUDED.kutipan,   analisis = EXCLUDED.analisis,
         heuristik = EXCLUDED.heuristik, status   = EXCLUDED.status`;
 
-    return NextResponse.json({ segmen, jumlah: evaluasi.length, evaluasi });
+    return NextResponse.json({ segmen, jumlah: evaluasi.length, evaluasi, pemakaian });
   } catch (e) {
     const pesan = e instanceof Error ? e.message : "Kesalahan tidak dikenal.";
     console.error("[analyze]", e);

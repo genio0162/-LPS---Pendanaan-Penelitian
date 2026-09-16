@@ -154,7 +154,7 @@ function lembarRingkasan(wb: ExcelJS.Workbook, proposal: HasilProposal[], batchI
   ws.mergeCells(`A${r}:H${r}`);
   const nota = ws.getCell(`A${r}`);
   nota.value =
-    `Skor = (jumlah "Memenuhi" + 0,5 × jumlah "Memenuhi Sebagian") ÷ ${proposal[0]?.evaluasi.length ?? 17} komponen. ` +
+    `Skor = (jumlah "Memenuhi" + 0,5 × jumlah "Memenuhi Sebagian") ÷ ${proposal[0]?.evaluasi.length ?? 19} kriteria. ` +
     `Pagu pendanaan per proposal: Rp${PAGU_PENDANAAN.toLocaleString("id-ID")},00. ` +
     `Hasil ini adalah bantuan penyaringan administratif dan tetap memerlukan validasi peninjau.`;
   nota.font = { name: FONT, size: 9, italic: true, color: { argb: "FF5B6170" } };
@@ -163,7 +163,7 @@ function lembarRingkasan(wb: ExcelJS.Workbook, proposal: HasilProposal[], batchI
 }
 
 /* ------------------------------------------------------------------ *
- * Lembar 2 — Validasi 17 komponen
+ * Lembar 2 — Validasi seluruh kriteria screening
  * ------------------------------------------------------------------ */
 
 function lembarValidasi(wb: ExcelJS.Workbook, proposal: HasilProposal[]): void {

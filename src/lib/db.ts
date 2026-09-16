@@ -20,15 +20,6 @@ export function sql() {
   return neon(connectionString());
 }
 
-export function dbTersedia(): boolean {
-  return Boolean(
-    process.env.DATABASE_URL ??
-      process.env.POSTGRES_URL ??
-      process.env.DATABASE_URL_UNPOOLED ??
-      process.env.POSTGRES_URL_NON_POOLING,
-  );
-}
-
 /**
  * Membuat tabel bila belum ada, lalu menyemai pengetahuan bawaan sekali saja.
  * Aman dipanggil berulang kali.

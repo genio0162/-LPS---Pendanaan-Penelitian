@@ -6,15 +6,43 @@ import {
   PAGU_PENDANAAN,
   POIN_KAK,
   RUANG_LINGKUP_FIELDS,
+  STATUS_DARI_KODE,
   STATUS_LIST,
-  komponenSegmen,
   type KomponenKAK,
 } from "./kak";
 import type { EvaluasiKomponen, PetaHeuristik, RuangLingkupItem } from "./types";
 
-export const MODEL = process.env.CLAUDE_MODEL ?? "claude-opus-5";
+/**
+ * Sonnet 5 adalah bawaan berdasarkan pengukuran, bukan asumsi.
+ *
+ * Pada ketiga proposal contoh FEB UI 2026, Sonnet 5 dan Opus 5 menghasilkan
+ * putusan yang sama — 19/19 cocok dengan cross-check manual pada proposal
+ * Riyanto — sedangkan biayanya sekitar 2,4x lebih murah ($0,28 berbanding
+ * $0,67 per proposal). Penyebabnya: putusan di sini dipandu ciri kondisi
+ * eksplisit dari Admin Fine-Tuner, sehingga beban penalaran bebasnya kecil.
+ * Makin tajam pengetahuan admin, makin kecil ketergantungan pada kecerdasan
+ * mentah model.
+ *
+ * Naikkan ke Opus 5 lewat CLAUDE_MODEL bila suatu saat dibutuhkan.
+ */
+export const MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-5";
 /** Dipakai bila permintaan utama ditolak classifier (stop_reason: "refusal"). */
 const MODEL_CADANGAN = "claude-opus-4-8";
+
+type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+const EFFORT_SAH: Effort[] = ["low", "medium", "high", "xhigh", "max"];
+
+/**
+ * Penilaian ini dipandu ciri kondisi eksplisit dari Admin Fine-Tuner, jadi beban
+ * penalaran bebasnya kecil. "medium" menekan token thinking — yang ditagih sebagai
+ * output — tanpa kehilangan ketelitian. Naikkan lewat KAK_EFFORT bila perlu.
+ *
+ * Namanya KAK_EFFORT dan bukan CLAUDE_EFFORT secara sengaja: nama yang terakhir
+ * sudah dipakai sebagian perkakas pengembangan dan diam-diam menimpa nilai ini.
+ */
+export const EFFORT: Effort = EFFORT_SAH.includes(process.env.KAK_EFFORT as Effort)
+  ? (process.env.KAK_EFFORT as Effort)
+  : "medium";
 
 let klien: Anthropic | null = null;
 
@@ -29,6 +57,66 @@ export function anthropic(): Anthropic {
     klien = new Anthropic({ apiKey, maxRetries: 2 });
   }
   return klien;
+}
+
+/* ------------------------------------------------------------------ *
+ * Pengukuran biaya
+ * ------------------------------------------------------------------ */
+
+/** USD per 1 juta token. */
+const HARGA: Record<string, { in: number; out: number; tulisCache: number; bacaCache: number }> = {
+  "claude-opus-5": { in: 5, out: 25, tulisCache: 6.25, bacaCache: 0.5 },
+  "claude-opus-4-8": { in: 5, out: 25, tulisCache: 6.25, bacaCache: 0.5 },
+  "claude-sonnet-5": { in: 2, out: 10, tulisCache: 2.5, bacaCache: 0.2 },
+  "claude-haiku-4-5": { in: 1, out: 5, tulisCache: 1.25, bacaCache: 0.1 },
+};
+
+export interface Pemakaian {
+  masuk: number;
+  tulisCache: number;
+  bacaCache: number;
+  keluar: number;
+  thinking: number;
+  biayaUsd: number;
+}
+
+export const PEMAKAIAN_KOSONG: Pemakaian = {
+  masuk: 0,
+  tulisCache: 0,
+  bacaCache: 0,
+  keluar: 0,
+  thinking: 0,
+  biayaUsd: 0,
+};
+
+function ukur(usage: Anthropic.Usage, model: string): Pemakaian {
+  const h = HARGA[model] ?? HARGA["claude-opus-5"];
+  const masuk = usage.input_tokens ?? 0;
+  const tulisCache = usage.cache_creation_input_tokens ?? 0;
+  const bacaCache = usage.cache_read_input_tokens ?? 0;
+  const keluar = usage.output_tokens ?? 0;
+  const thinking =
+    (usage as { output_tokens_details?: { thinking_tokens?: number } }).output_tokens_details
+      ?.thinking_tokens ?? 0;
+
+  const biayaUsd =
+    (masuk * h.in + tulisCache * h.tulisCache + bacaCache * h.bacaCache + keluar * h.out) / 1_000_000;
+
+  return { masuk, tulisCache, bacaCache, keluar, thinking, biayaUsd };
+}
+
+export function jumlahkanPemakaian(daftar: Pemakaian[]): Pemakaian {
+  return daftar.reduce(
+    (a, b) => ({
+      masuk: a.masuk + b.masuk,
+      tulisCache: a.tulisCache + b.tulisCache,
+      bacaCache: a.bacaCache + b.bacaCache,
+      keluar: a.keluar + b.keluar,
+      thinking: a.thinking + b.thinking,
+      biayaUsd: a.biayaUsd + b.biayaUsd,
+    }),
+    PEMAKAIAN_KOSONG,
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -50,27 +138,25 @@ function skemaEvaluasi(komponen: KomponenKAK[]) {
         ringkasan_temuan: z
           .string()
           .describe(
-            "Ringkasan kondisi dalam 3-10 kata, gaya lembar cross-check. Contoh: 'Status indeksasi tidak dinyatakan', 'Peran tim tidak eksplisit', 'Ada', 'Tidak ada'.",
+            "Ringkasan kondisi dalam 3-10 kata, gaya lembar screening. Contoh: 'Status indeksasi tidak dinyatakan', 'Peran tim tidak eksplisit', 'Ada', 'Tidak ada'.",
           ),
         halaman: z
           .string()
           .describe(
-            "Rujukan halaman dokumen asli berdasarkan penanda [[HALAMAN n]]. Format: 'Hal 12' atau 'Hal 13-16'. Gunakan 'Seluruh dokumen' bila unsur dicari di seluruh berkas dan tidak ditemukan.",
+            "Rujukan halaman berdasarkan penanda [[HALAMAN n]]. Format: 'Hal 12' atau 'Hal 13-16'. Gunakan 'Seluruh dokumen' bila unsur dicari di seluruh berkas dan tidak ditemukan.",
           ),
         kutipan: z
           .string()
-          .describe(
-            "Kutipan pendek atau parafrase teks proposal yang menjadi bukti. Kosongkan dengan '-' bila unsur memang tidak ditemukan.",
-          ),
+          .describe("Kutipan pendek atau parafrase bukti. Isi '-' bila unsur memang tidak ada."),
         analisis: z
           .string()
           .describe(
-            "Penalaran 1-3 kalimat: cocokkan bukti dokumen dengan bunyi ketentuan KAK DAN dengan baris pengetahuan admin yang relevan. Sebut secara eksplisit ciri kondisi mana yang terpenuhi atau tidak.",
+            "Penalaran 1-2 kalimat: cocokkan bukti dokumen dengan kriteria screening DAN dengan ciri kondisi admin yang relevan. Sebut ciri mana yang terpenuhi atau tidak.",
           ),
         heuristik_terpakai: z
           .array(z.string())
           .describe(
-            "Salin persis teks baris pengetahuan admin yang menjadi dasar putusan. Array kosong bila tidak ada yang cocok.",
+            "Salin persis teks ciri kondisi admin yang menjadi dasar putusan. Array kosong bila tidak ada yang cocok.",
           ),
         status: StatusEnum.describe("Putusan akhir setelah analisis di atas."),
       }),
@@ -82,7 +168,11 @@ const SkemaRuangLingkup = z.object({
   nama_tim: z
     .string()
     .describe(
-      "Nama belakang ketua tim diikuti jenis tema dalam kurung, contoh: 'Riyanto (Tema Umum)'.",
+      "Nama belakang ketua tim, diikuti KATEGORI tema dalam kurung — persis 'Tema Umum' atau " +
+        "'Tema Khusus', bukan nama temanya. 'Tema Khusus' HANYA untuk penelitian tentang " +
+        "Pengembangan Model Financial Programming and Policies (FPP) Indonesia; semua tema " +
+        "lain adalah 'Tema Umum'. Contoh benar: 'Riyanto (Tema Umum)'. " +
+        "Contoh SALAH: 'Riyanto (Perbankan Digital)'.",
     ),
   judul: z.string().describe("Judul lengkap proposal penelitian."),
   ruang_lingkup: z.array(
@@ -109,7 +199,7 @@ function blokAcuanKAK(): string {
   ).join("\n");
 
   return [
-    "<acuan_kak sumber=\"KAK-1/GRIS/2026 jo. PKS-1006/UN2.F6.D/PPM.00.00/2026\">",
+    '<acuan_kak sumber="KAK-1/GRIS/2026 jo. PKS-1006/UN2.F6.D/PPM.00.00/2026">',
     poin,
     `  <pagu>Total pembiayaan Program Pendanaan Penelitian adalah Rp${PAGU_PENDANAAN.toLocaleString(
       "id-ID",
@@ -118,90 +208,116 @@ function blokAcuanKAK(): string {
   ].join("\n");
 }
 
-function blokHeuristik(peta: PetaHeuristik, komponen: KomponenKAK[]): string {
-  const label: Record<string, string> = {
-    M: "Memenuhi",
-    S: "Memenuhi Sebagian",
-    T: "Tidak Memenuhi",
-  };
+/** Blok pengetahuan admin untuk seluruh 19 kriteria screening. */
+function blokHeuristik(peta: PetaHeuristik): string {
+  const isi = KOMPONEN_KAK.map((k) => {
+    const perStatus = peta[k.id] ?? {};
+    const blokStatus = (["M", "S", "T"] as const)
+      .map((s) => {
+        const baris = perStatus[s] ?? [];
+        if (!baris.length) return "";
+        const li = baris.map((t) => `      <ciri>${escapeXml(t)}</ciri>`).join("\n");
+        return `    <status nilai="${STATUS_DARI_KODE[s]}">\n${li}\n    </status>`;
+      })
+      .filter(Boolean)
+      .join("\n");
 
-  const isi = komponen
-    .map((k) => {
-      const perStatus = peta[k.id] ?? {};
-      const blokStatus = (["M", "S", "T"] as const)
-        .map((s) => {
-          const baris = perStatus[s] ?? [];
-          if (!baris.length) return "";
-          const li = baris.map((t) => `      <ciri>${escapeXml(t)}</ciri>`).join("\n");
-          return `    <status nilai="${label[s]}">\n${li}\n    </status>`;
-        })
-        .filter(Boolean)
-        .join("\n");
+    const badan =
+      blokStatus ||
+      '    <status nilai="catatan">\n      <ciri>Admin belum menyuntikkan ciri kondisi untuk komponen ini. Nilai murni berdasarkan bunyi kriteria screening.</ciri>\n    </status>';
 
-      const badan =
-        blokStatus ||
-        "    <status nilai=\"catatan\">\n      <ciri>Admin belum menyuntikkan ciri kondisi untuk komponen ini. Nilai murni berdasarkan bunyi ketentuan KAK.</ciri>\n    </status>";
+    const lazim = k.statusLazim.map((s) => STATUS_DARI_KODE[s]).join(" / ");
 
-      return `  <komponen id="${k.id}" nama="${escapeXml(k.nama)}" poin="${k.poin}">\n    <ketentuan_kak>${escapeXml(
-        k.acuan,
-      )}</ketentuan_kak>\n${badan}\n  </komponen>`;
-    })
-    .join("\n");
+    return (
+      `  <komponen id="${k.id}" nama="${escapeXml(k.nama)}" poin="${k.poin}">\n` +
+      `    <kriteria_screening>${escapeXml(k.kriteria)}</kriteria_screening>\n` +
+      `    <status_tersedia>${lazim}</status_tersedia>\n${badan}\n  </komponen>`
+    );
+  }).join("\n");
 
   return `<pengetahuan_admin>\n${isi}\n</pengetahuan_admin>`;
 }
 
 function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 const PERAN = `<peran>
 Anda adalah verifikator senior seleksi administratif Program Pendanaan Penelitian
-Lembaga Penjamin Simpanan (LPS) bersama Fakultas Ekonomi dan Bisnis Universitas Indonesia.
-Tugas Anda menilai proposal penelitian terhadap Kerangka Acuan Kerja (KAK) poin 7 sampai 8.3,
-dengan ketelitian setara peninjau manusia yang memeriksa dokumen halaman per halaman.
+Lembaga Penjamin Simpanan (LPS) bersama fakultas ekonomi dan bisnis perguruan tinggi mitra.
+Tugas Anda mengisi lembar "Kriteria Screening" terhadap Kerangka Acuan Kerja (KAK) poin 7
+sampai 8.3, dengan ketelitian setara peninjau manusia yang memeriksa dokumen halaman per halaman.
 </peran>`;
 
 const ATURAN = `<aturan_penilaian>
-1. Nilai HANYA berdasarkan isi dokumen proposal di dalam <dokumen_proposal>. Jangan pernah
-   mengarang temuan, nama, angka, nama jurnal, status indeksasi, atau nomor halaman.
-2. <pengetahuan_admin> adalah pedoman lokal yang WAJIB diikuti. Bila bukti dokumen cocok dengan
-   sebuah <ciri> pada status tertentu, tetapkan status tersebut. Ciri yang lebih spesifik
-   mengalahkan penilaian umum Anda.
-3. Bila sebuah unsur sama sekali tidak ditemukan setelah menelusuri seluruh dokumen termasuk
-   lampiran, tetapkan "Tidak Memenuhi" dan isi halaman dengan "Seluruh dokumen".
-   Jangan menetapkan "Memenuhi Sebagian" hanya karena Anda ragu.
-4. Ketiadaan dokumen yang bersifat mutlak — misalnya surat pernyataan etika dan non-double
-   funding — adalah "Tidak Memenuhi", bukan "Memenuhi Sebagian".
+1. Nilai HANYA berdasarkan isi dokumen proposal di dalam <dokumen_proposal> dan berkas
+   lampiran bila ada. Jangan pernah mengarang temuan, nama, angka, nama jurnal, status
+   indeksasi, atau nomor halaman.
+2. <pengetahuan_admin> adalah pedoman lokal yang WAJIB diikuti dan lebih berwibawa daripada
+   pembacaan harfiah Anda sendiri. Bila bukti dokumen cocok dengan sebuah <ciri> pada status
+   tertentu, tetapkan status tersebut. Ciri bertanda [kalibrasi] berasal dari putusan peninjau
+   manusia pada kasus nyata — patuhi, sekalipun naluri Anda menyarankan status lain.
+3. <status_tersedia> menunjukkan status yang lazim dipakai pada lembar screening untuk komponen
+   itu. Untuk komponen biner "Memenuhi / Tidak Memenuhi", hindari "Memenuhi Sebagian" kecuali
+   ada <ciri> admin yang secara khusus menyebutkannya. PENTING: pada komponen biner, bukti yang
+   tidak sempurna tetapi menunjukkan unsurnya ADA berarti "Memenuhi", bukan "Tidak Memenuhi".
+   "Tidak Memenuhi" hanya untuk unsur yang benar-benar tidak terpenuhi atau tidak ditemukan.
+4. Bila sebuah unsur tidak ditemukan setelah menelusuri seluruh dokumen termasuk lampiran,
+   tetapkan "Tidak Memenuhi" dan isi halaman dengan "Seluruh dokumen". Jangan menetapkan
+   "Memenuhi Sebagian" hanya karena Anda ragu.
 5. Rujukan halaman diambil dari penanda [[HALAMAN n]] pada teks. Sebut rentang bila unsur
    tersebar, contoh "Hal 13-16". Jangan menyebut nomor halaman yang tidak ada penandanya.
-5b. Halaman bertanda [[TANPA LAPISAN TEKS]] adalah hasil pindaian, bukan halaman kosong.
-   Bila berkas PDF asli dilampirkan pada permintaan ini, baca isi halaman itu dari berkas
-   tersebut. Surat pernyataan bertanda tangan dan lanjutan tabel RAB sering berada di
-   halaman semacam ini. Jangan pernah menyimpulkan sebuah unsur tidak ada semata-mata
-   karena halamannya tidak punya lapisan teks.
-6. Untuk rekam jejak publikasi: yang dinilai adalah APA YANG TERTULIS DI PROPOSAL. Daftar
-   publikasi yang panjang tetapi tanpa keterangan indeksasi Sinta/Scopus BUKAN bukti pemenuhan
-   syarat Sinta 2 / Scopus Q3. Anda tidak boleh mengasumsikan peringkat sebuah jurnal.
-7. Untuk RAB: periksa total pagu terhadap Rp100.000.000,00, DAN periksa struktur perpajakannya —
-   pemisahan Dasar Pengenaan Pajak (DPP), PPN 11% atas pengadaan barang/jasa, PPh 21 atas
-   honorarium orang pribadi (peneliti, asisten, narasumber, proofreader), serta PPh 23 atas jasa
-   pihak ketiga/badan. Total yang tepat tetapi struktur pajak yang absen adalah "Memenuhi Sebagian".
-8. Isi "analisis" lebih dahulu sebagai penalaran, baru tetapkan "status". Status harus merupakan
-   kesimpulan logis dari analisis, dan konsisten dengan ciri kondisi yang Anda kutip.
-9. Tulis seluruh keluaran dalam Bahasa Indonesia baku, ringkas, dan faktual.
+6. Halaman bertanda [[TANPA LAPISAN TEKS]] adalah hasil pindaian, BUKAN halaman kosong.
+   Bila ada berkas lampiran pada permintaan ini, halaman pindaian itu ada di dalamnya —
+   bacalah dari sana. Surat pernyataan bertanda tangan, lembar pengesahan, dan lanjutan tabel
+   RAB sering berada di halaman semacam ini. Jangan pernah menyimpulkan sebuah unsur tidak ada
+   semata-mata karena halamannya tidak punya lapisan teks.
+7. Untuk rekam jejak publikasi: yang dinilai adalah APA YANG TERTULIS DI PROPOSAL. Daftar
+   publikasi panjang tanpa keterangan indeksasi Sinta/Scopus BUKAN bukti pemenuhan syarat
+   Sinta 2 / Scopus Q3. Anda tidak boleh mengasumsikan peringkat sebuah jurnal.
+8. Untuk RAB: periksa total terhadap Rp100.000.000,00 DAN struktur perpajakannya — pemisahan
+   Dasar Pengenaan Pajak (DPP), PPN 11% atas pengadaan barang/jasa, PPh 21 atas honorarium
+   orang pribadi, PPh 23 atas jasa badan.
+9. Isi "analisis" lebih dahulu sebagai penalaran, baru tetapkan "status". Tulis ringkas —
+   satu sampai dua kalimat sudah cukup. "status" WAJIB konsisten dengan kesimpulan "analisis":
+   bila analisis menyatakan unsurnya terpenuhi, status harus "Memenuhi"; bila analisis menyatakan
+   unsurnya tidak ada, status harus "Tidak Memenuhi". Periksa ulang konsistensi ini sebelum
+   mengeluarkan setiap entri.
+10. Seluruh keluaran dalam Bahasa Indonesia baku, ringkas, dan faktual.
 </aturan_penilaian>`;
 
-/** Blok sistem yang stabil antar-permintaan → aman untuk prompt caching. */
-function sistem(peta: PetaHeuristik, komponen: KomponenKAK[]): Anthropic.TextBlockParam[] {
+/**
+ * Prefiks sistem — identik untuk SETIAP panggilan pada batch yang sama.
+ * Kestabilan inilah yang membuat prompt caching bekerja.
+ */
+function sistem(peta: PetaHeuristik): Anthropic.TextBlockParam[] {
   return [
     { type: "text", text: PERAN },
     { type: "text", text: blokAcuanKAK() },
-    { type: "text", text: blokHeuristik(peta, komponen) },
+    { type: "text", text: blokHeuristik(peta) },
     { type: "text", text: ATURAN, cache_control: { type: "ephemeral" } },
+  ];
+}
+
+/**
+ * Sistem ringan untuk ekstraksi ruang lingkup. Tugas itu murni menyalin isi
+ * proposal dan sama sekali tidak memakai ciri kondisi admin, jadi blok
+ * pengetahuan yang besar itu tidak dikirim — memangkas beberapa ribu token
+ * masukan pada setiap proposal.
+ */
+function sistemRingan(): Anthropic.TextBlockParam[] {
+  return [
+    { type: "text", text: PERAN },
+    {
+      type: "text",
+      text:
+        "<aturan>\n" +
+        "Salin isi proposal apa adanya, ringkas, dalam Bahasa Indonesia baku. Jangan menilai,\n" +
+        "jangan menyimpulkan, dan jangan mengarang. Halaman bertanda [[TANPA LAPISAN TEKS]] adalah\n" +
+        "hasil pindaian; bila ada berkas lampiran, baca isinya dari sana.\n" +
+        "</aturan>",
+      cache_control: { type: "ephemeral" },
+    },
   ];
 }
 
@@ -209,41 +325,54 @@ function sistem(peta: PetaHeuristik, komponen: KomponenKAK[]): Anthropic.TextBlo
  * Pemanggilan
  * ------------------------------------------------------------------ */
 
+export interface LampiranPindaian {
+  /** file_id di Files API, berisi HANYA halaman pindaian. */
+  fileId: string;
+  /** Nomor halaman asli, urut sesuai urutan halaman di dalam lampiran. */
+  halaman: number[];
+}
+
 interface OpsiPanggil<T> {
   sistem: Anthropic.TextBlockParam[];
   teksDokumen: string;
   instruksi: string;
   skema: z.ZodType<T>;
-  /** Berkas PDF di Files API, dilampirkan bila dokumen punya halaman pindaian. */
-  fileId?: string | null;
+  lampiran?: LampiranPindaian | null;
+  maxTokens?: number;
+}
+
+interface HasilPanggil<T> {
+  data: T;
+  pemakaian: Pemakaian;
 }
 
 async function panggil<T>({
-  sistem,
+  sistem: sistemBlok,
   teksDokumen,
   instruksi,
   skema,
-  fileId,
-}: OpsiPanggil<T>): Promise<T> {
+  lampiran,
+  maxTokens = 16000,
+}: OpsiPanggil<T>): Promise<HasilPanggil<T>> {
   const client = anthropic();
-
   const isi: Anthropic.ContentBlockParam[] = [];
 
-  // PDF asli hanya dilampirkan bila ekstraksi teks menemukan halaman pindaian.
-  // Untuk PDF yang seluruhnya berlapis teks, jalur teks jauh lebih murah dan cepat.
-  if (fileId) {
+  // Hanya halaman pindaian yang dilampirkan, bukan seluruh PDF. Pada proposal
+  // 42 halaman dengan 3 halaman pindaian, ini memangkas sekitar 80.000 token
+  // gambar menjadi sekitar 6.000.
+  if (lampiran) {
     isi.push({
       type: "document",
-      source: { type: "file", file_id: fileId },
-      title: "Proposal penelitian (berkas asli)",
+      source: { type: "file", file_id: lampiran.fileId },
+      title: `Halaman pindaian (asli: ${lampiran.halaman.map((h) => `Hal ${h}`).join(", ")})`,
     });
   }
 
   isi.push({
     type: "text",
     text: `<dokumen_proposal>\n${teksDokumen}\n</dokumen_proposal>`,
-    // Teks dokumen dipakai ulang oleh setiap segmen analisis pada berkas yang sama,
-    // jadi di-cache agar panggilan kedua dan ketiga hanya membayar ~0,1x.
+    // Titik potong cache: seluruh prefiks di atasnya dipakai ulang oleh
+    // panggilan berikutnya pada berkas yang sama.
     cache_control: { type: "ephemeral" },
   });
   isi.push({ type: "text", text: instruksi });
@@ -253,19 +382,20 @@ async function panggil<T>({
   const kirim = (model: string) =>
     client.messages.parse({
       model,
-      max_tokens: 16000,
+      max_tokens: maxTokens,
       thinking: { type: "adaptive" },
-      output_config: { effort: "high", format: zodOutputFormat(skema) },
-      system: sistem,
+      output_config: { effort: EFFORT, format: zodOutputFormat(skema) },
+      system: sistemBlok,
       messages,
     });
 
   let res = await kirim(MODEL);
+  let modelTerpakai = MODEL;
 
   // Classifier sesekali menolak permintaan (HTTP 200, stop_reason "refusal").
-  // Coba sekali pada model sebelumnya sebelum menyerah.
   if (res.stop_reason === "refusal") {
     res = await kirim(MODEL_CADANGAN);
+    modelTerpakai = MODEL_CADANGAN;
     if (res.stop_reason === "refusal") {
       throw new Error(
         "Permintaan analisis ditolak oleh pemeriksa keamanan model. Periksa isi dokumen lalu coba lagi.",
@@ -278,57 +408,69 @@ async function panggil<T>({
       "Keluaran model terpotong sebelum selesai. Kurangi jumlah halaman proposal lalu ulangi.",
     );
   }
-
   if (!res.parsed_output) {
     throw new Error("Model tidak mengembalikan keluaran terstruktur yang valid.");
   }
-  return res.parsed_output;
-}
 
-/** Menilai satu kelompok komponen KAK terhadap satu dokumen. */
-export async function analisisKomponen(
-  segmen: "tema_tim" | "struktur",
-  teksDokumen: string,
-  peta: PetaHeuristik,
-  fileId?: string | null,
-): Promise<EvaluasiKomponen[]> {
-  const komponen = komponenSegmen(segmen);
-  const daftar = komponen
-    .map((k, i) => `${i + 1}. [${k.id}] ${k.nama} (${k.poin}) — ${k.acuan}`)
-    .join("\n");
-
-  const judulSegmen =
-    segmen === "tema_tim"
-      ? "tema penelitian (poin 7), susunan tim (poin 8.1), dan persyaratan peserta serta tim (poin 8.2)"
-      : "struktur proposal (poin 8.3)";
-
-  const instruksi = `<tugas>
-Nilai proposal di atas terhadap ${komponen.length} komponen berikut, yang mencakup ${judulSegmen}.
-Kembalikan tepat ${komponen.length} entri pada array "evaluasi", satu untuk setiap komponen,
-dalam urutan yang sama seperti daftar ini.
-
-<daftar_komponen>
-${daftar}
-</daftar_komponen>
-
-Telusuri seluruh dokumen termasuk lembar pengesahan, lampiran, daftar publikasi, tabel anggaran,
-dan curriculum vitae sebelum menyimpulkan bahwa sebuah unsur tidak ada.
-</tugas>`;
-
-  const { evaluasi } = await panggil({
-    sistem: sistem(peta, komponen),
-    teksDokumen,
-    instruksi,
-    skema: skemaEvaluasi(komponen),
-    fileId,
-  });
-
-  return rapikanEvaluasi(evaluasi, komponen);
+  return { data: res.parsed_output, pemakaian: ukur(res.usage, modelTerpakai) };
 }
 
 /**
- * Menjamin 17 komponen selalu lengkap di Excel: entri yang hilang diisi
- * penanda eksplisit, entri ganda dibuang, urutan dikembalikan ke urutan KAK.
+ * Menilai SELURUH kriteria screening terhadap satu dokumen dalam satu panggilan.
+ *
+ * Sebelumnya ini dipecah menjadi dua panggilan (tema+tim, lalu struktur) dengan
+ * harapan panggilan kedua membaca prefiks dari cache. Pengukuran menunjukkan
+ * caching tidak pernah mengena: skema keluaran terstruktur berbeda antar segmen,
+ * dan perbedaan itu membatalkan pencocokan prefiks. Akibatnya teks dokumen —
+ * bagian termahal dari permintaan — dibayar penuh dua kali. Satu panggilan
+ * membayarnya sekali.
+ */
+export async function analisisKomponen(
+  teksDokumen: string,
+  peta: PetaHeuristik,
+  lampiran?: LampiranPindaian | null,
+): Promise<{ evaluasi: EvaluasiKomponen[]; pemakaian: Pemakaian }> {
+  const komponen = KOMPONEN_KAK;
+  const daftar = komponen
+    .map((k, i) => `${i + 1}. [${k.id}] ${k.nama} (${k.poin}) — ${k.kriteria}`)
+    .join("\n");
+
+  const instruksi = `<tugas>
+Isi lembar "Kriteria Screening" untuk proposal di atas: nilai ${komponen.length} kriteria berikut,
+mencakup tema penelitian (poin 7), susunan tim (poin 8.1), persyaratan peserta dan tim (poin 8.2),
+serta struktur proposal (poin 8.3).
+
+Kembalikan tepat ${komponen.length} entri pada array "evaluasi", satu untuk setiap kriteria,
+dalam urutan yang sama seperti daftar ini. Jangan menilai kriteria di luar daftar ini,
+dan jangan mengembalikan entri ganda untuk kriteria yang sama.
+
+<daftar_kriteria>
+${daftar}
+</daftar_kriteria>
+
+Telusuri seluruh dokumen termasuk lembar pengesahan, lampiran, daftar publikasi, tabel anggaran,
+dan daftar riwayat hidup sebelum menyimpulkan bahwa sebuah unsur tidak ada.
+</tugas>`;
+
+  const { data, pemakaian } = await panggil({
+    sistem: sistem(peta),
+    teksDokumen,
+    instruksi,
+    skema: skemaEvaluasi(komponen),
+    lampiran,
+    // Pengukuran: 19 kriteria menghasilkan sekitar 7.000 token keluaran, jadi
+    // 16.000 memberi ruang dua kali lipat. Jangan dinaikkan lagi tanpa beralih
+    // ke streaming — SDK menolak permintaan non-streaming dengan max_tokens
+    // yang perkiraan durasinya melebihi sepuluh menit.
+    maxTokens: 16000,
+  });
+
+  return { evaluasi: rapikanEvaluasi(data.evaluasi, komponen), pemakaian };
+}
+
+/**
+ * Menjamin seluruh komponen selalu lengkap di Excel: entri yang hilang diisi
+ * penanda eksplisit, entri ganda dibuang, urutan dikembalikan ke urutan screening.
  */
 function rapikanEvaluasi(
   mentah: z.infer<ReturnType<typeof skemaEvaluasi>>["evaluasi"],
@@ -346,7 +488,7 @@ function rapikanEvaluasi(
         ringkasan_temuan: "Tidak dievaluasi",
         halaman: "-",
         kutipan: "-",
-        analisis: "Model tidak mengembalikan penilaian untuk komponen ini. Perlu reviu manual.",
+        analisis: "Model tidak mengembalikan penilaian untuk kriteria ini. Perlu reviu manual.",
         heuristik_terpakai: [],
         status: "Memenuhi Sebagian" as const,
       };
@@ -365,17 +507,21 @@ function rapikanEvaluasi(
   });
 }
 
-/** Mengekstrak tujuan dan ruang lingkup untuk lembar kedua berkas Excel. */
+/** Mengekstraksi tujuan dan ruang lingkup untuk lembar ketiga berkas Excel. */
 export async function analisisRuangLingkup(
   teksDokumen: string,
-  peta: PetaHeuristik,
-  fileId?: string | null,
-): Promise<{ nama_tim: string; judul: string; ruang_lingkup: RuangLingkupItem[] }> {
+  lampiran?: LampiranPindaian | null,
+): Promise<{
+  nama_tim: string;
+  judul: string;
+  ruang_lingkup: RuangLingkupItem[];
+  pemakaian: Pemakaian;
+}> {
   const daftar = RUANG_LINGKUP_FIELDS.map((f) => `- [${f.id}] ${f.nama}`).join("\n");
 
   const instruksi = `<tugas>
-Ekstraksi identitas dan ruang lingkup penelitian dari proposal di atas.
-Kembalikan satu entri untuk setiap unsur berikut, dalam urutan yang sama:
+Abaikan penilaian status untuk tugas ini. Ekstraksi identitas dan ruang lingkup penelitian
+dari proposal di atas, satu entri untuk setiap unsur berikut, dalam urutan yang sama:
 
 <daftar_unsur>
 ${daftar}
@@ -383,7 +529,7 @@ ${daftar}
 
 Panduan isi:
 - tujuan_penelitian: pecah menjadi satu butir per tujuan, salin substansinya secara ringkas.
-- objek_penelitian: apa yang menjadi objek/fenomena yang diteliti.
+- objek_penelitian: apa yang menjadi objek atau fenomena yang diteliti.
 - periode_pengamatan: rentang waktu data atau observasi, sebut tahunnya bila ada.
 - variabel_fokus: pecah per kelompok — variabel dependen, independen, kontrol/moderator.
 - batasan_wilayah: cakupan wilayah, unit analisis, dan jumlah sampel bila disebut.
@@ -392,25 +538,20 @@ Panduan isi:
 Gunakan ["Tidak disebutkan dalam proposal"] bila sebuah unsur memang tidak ada.
 </tugas>`;
 
-  const hasil = await panggil({
-    sistem: [
-      { type: "text", text: PERAN },
-      { type: "text", text: blokAcuanKAK(), cache_control: { type: "ephemeral" } },
-    ],
+  const { data, pemakaian } = await panggil({
+    sistem: sistemRingan(),
     teksDokumen,
     instruksi,
     skema: SkemaRuangLingkup,
-    fileId,
+    lampiran,
   });
 
-  const byId = new Map(hasil.ruang_lingkup.map((r) => [r.field_id, r]));
+  const byId = new Map(data.ruang_lingkup.map((r) => [r.field_id, r]));
   const ruang_lingkup: RuangLingkupItem[] = RUANG_LINGKUP_FIELDS.map((f) => ({
     field_id: f.id,
     field_nama: f.nama,
     nilai: byId.get(f.id)?.nilai ?? ["Tidak disebutkan dalam proposal"],
   }));
 
-  return { nama_tim: hasil.nama_tim, judul: hasil.judul, ruang_lingkup };
+  return { nama_tim: data.nama_tim, judul: data.judul, ruang_lingkup, pemakaian };
 }
-
-export const TOTAL_KOMPONEN = KOMPONEN_KAK.length;

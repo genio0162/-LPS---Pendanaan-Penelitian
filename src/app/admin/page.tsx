@@ -55,7 +55,7 @@ export default function PanelAdmin() {
   const [buka, setBuka] = useState(true);
   const [baris, setBaris] = useState<Baris[]>([]);
   const [riwayat, setRiwayat] = useState<RiwayatBaris[]>([]);
-  const [pilih, setPilih] = useState(KOMPONEN_KAK[5].id); // "Rekam jejak publikasi"
+  const [pilih, setPilih] = useState(KOMPONEN_KAK[6].id); // "Rekam jejak publikasi"
   const [draf, setDraf] = useState<Record<KodeStatus, string>>({ M: "", S: "", T: "" });
   const [memuat, setMemuat] = useState(true);
   const [galat, setGalat] = useState<string | null>(null);
@@ -358,13 +358,13 @@ export default function PanelAdmin() {
 
         {tab === "finetuner" ? (
           <div className="flex flex-wrap items-start gap-6">
-            {/* Daftar 17 komponen */}
+            {/* Daftar kriteria screening */}
             <div
               className="min-w-0 flex-[1_1_268px] overflow-hidden rounded-[22px] border lg:max-w-[340px]"
               style={{ background: "var(--panel)", borderColor: "var(--line)" }}
             >
               <div className="border-b px-[18px] py-4" style={{ borderColor: "var(--line)" }}>
-                <div className="text-[13px] font-semibold">{KOMPONEN_KAK.length} komponen KAK</div>
+                <div className="text-[13px] font-semibold">{KOMPONEN_KAK.length} kriteria screening</div>
                 <div className="mt-0.5 text-[11.5px]" style={{ color: "var(--mute2)" }}>
                   Pilih komponen untuk disunting
                 </div>
@@ -437,8 +437,8 @@ export default function PanelAdmin() {
                   className="mt-3 border-t pt-3 text-[12.5px] leading-[1.6]"
                   style={{ borderColor: "var(--line)", color: "var(--fg3)" }}
                 >
-                  <span style={{ color: "var(--mute3)" }}>Yang dinilai: </span>
-                  {komponenTerpilih.acuan}
+                  <span style={{ color: "var(--mute3)" }}>Kriteria screening: </span>
+                  {komponenTerpilih.kriteria}
                 </div>
               </motion.div>
 

@@ -3,7 +3,7 @@ import { toFile } from "@anthropic-ai/sdk";
 import { put } from "@vercel/blob";
 import { randomUUID } from "node:crypto";
 import { anthropic } from "@/lib/claude";
-import { ekstrakPdf, tebakNamaTim } from "@/lib/pdf";
+import { ekstrakPdf, pdfHalamanTerpilih, tebakNamaTim } from "@/lib/pdf";
 import { pastikanSkema, sql } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -64,23 +64,30 @@ export async function POST(req: Request) {
     }
 
     // Halaman pindaian tidak punya lapisan teks — surat pernyataan bertanda tangan
-    // dan lanjutan tabel RAB kerap berada di sana. PDF asli diunggah ke Files API
-    // supaya model bisa membacanya sebagai gambar; file_id dipakai ulang oleh
-    // ketiga segmen analisis, jadi cukup satu kali unggah per dokumen.
+    // dan lanjutan tabel RAB kerap berada di sana. Hanya halaman itu yang disaring
+    // ke dalam PDF kecil lalu diunggah ke Files API, bukan seluruh dokumen: satu
+    // halaman PDF berharga ~2.000 token karena diproses sebagai gambar, jadi
+    // menyaring lebih dulu memangkas biaya jalur ini lebih dari sepuluh kali lipat.
+    // file_id dipakai ulang oleh ketiga segmen analisis, cukup sekali unggah.
     let fileId: string | null = null;
     if (perluPdfAsli) {
       try {
-        const unggah = await anthropic().files.upload({
-          file: await toFile(new Blob([buffer], { type: "application/pdf" }), berkas.name, {
-            type: "application/pdf",
-          }),
-          expires_in_seconds: 86_400, // cukup untuk satu batch; berkas hilang sendiri setelahnya
-        });
-        fileId = unggah.id;
+        const potongan = await pdfHalamanTerpilih(buffer, halamanKosong);
+        if (potongan) {
+          const unggah = await anthropic().files.upload({
+            file: await toFile(
+              new Blob([potongan as BlobPart], { type: "application/pdf" }),
+              `pindaian-${berkas.name}`,
+              { type: "application/pdf" },
+            ),
+            expires_in_seconds: 86_400, // cukup untuk satu batch; berkas hilang sendiri
+          });
+          fileId = unggah.id;
+        }
       } catch (e) {
         // Tanpa file_id analisis tetap berjalan dari teks; halaman pindaian
         // sudah ditandai eksplisit agar model tidak salah menyimpulkan.
-        console.error("Unggah PDF ke Files API gagal:", e);
+        console.error("Unggah halaman pindaian ke Files API gagal:", e);
       }
     }
 

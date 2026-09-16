@@ -38,7 +38,7 @@ type Fase = "unggah" | "proses" | "selesai";
 const TUTORIAL = [
   "Unggah sampai 5 proposal PDF",
   "Teks dan tabel dokumen diekstraksi",
-  "17 komponen KAK dinilai satu per satu",
+  "19 kriteria screening KAK dinilai",
   "Unduh satu berkas Excel",
 ];
 
@@ -152,7 +152,7 @@ export default function Beranda() {
         const dExtract = await rExtract.json();
         if (!rExtract.ok) throw new Error(dExtract.error ?? `Gagal memproses ${b.nama}.`);
 
-        const segmen = ["tema_tim", "struktur", "ruang_lingkup"] as const;
+        const segmen = ["kriteria", "ruang_lingkup"] as const;
         for (const [j, s] of segmen.entries()) {
           maju(i, j + 1, b.nama);
           const r = await fetch("/api/analyze", {
@@ -449,7 +449,7 @@ export default function Beranda() {
                   className="font-[family-name:var(--font-mono)] text-[11px] tracking-[0.04em]"
                   style={{ color: "var(--mute2)" }}
                 >
-                  {hasil.jumlah} proposal · {KOMPONEN_KAK.length} komponen KAK
+                  {hasil.jumlah} proposal · {KOMPONEN_KAK.length} kriteria KAK
                   {hasil.skor !== null ? ` · skor ${hasil.skor}%` : ""}
                 </div>
                 <motion.button
