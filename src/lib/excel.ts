@@ -100,12 +100,11 @@ function lembarRingkasan(wb: ExcelJS.Workbook, proposal: HasilProposal[], batchI
     { key: "m", width: 11 },
     { key: "s", width: 17 },
     { key: "t", width: 15 },
-    { key: "skor", width: 10 },
   ];
 
   judulLembar(
     ws,
-    "H",
+    "G",
     "Ringkasan Hasil Evaluasi Proposal",
     `Program Pendanaan Penelitian LPS - FEB UI · KAK-1/GRIS/2026 poin 7 s.d. 8.3 · ` +
       `Batch ${batchId} · Dihasilkan ${new Date().toLocaleString("id-ID")}`,
@@ -119,7 +118,6 @@ function lembarRingkasan(wb: ExcelJS.Workbook, proposal: HasilProposal[], batchI
     "Memenuhi",
     "Memenuhi Sebagian",
     "Tidak Memenuhi",
-    "Skor",
   ];
   kepalaTabel(ws, 5, 34);
 
@@ -128,11 +126,9 @@ function lembarRingkasan(wb: ExcelJS.Workbook, proposal: HasilProposal[], batchI
     const m = p.evaluasi.filter((e) => e.status === "Memenuhi").length;
     const s = p.evaluasi.filter((e) => e.status === "Memenuhi Sebagian").length;
     const t = p.evaluasi.filter((e) => e.status === "Tidak Memenuhi").length;
-    const total = p.evaluasi.length || 1;
-    const skor = Math.round(((m + s * 0.5) / total) * 100);
 
     const row = ws.getRow(r);
-    row.values = [i + 1, p.nama_tim, p.judul, p.nama_berkas, m, s, t, `${skor}%`];
+    row.values = [i + 1, p.nama_tim, p.judul, p.nama_berkas, m, s, t];
     row.height = 30;
     row.eachCell((cell, col) => {
       cell.font = { name: FONT, size: 10.5 };
@@ -146,15 +142,13 @@ function lembarRingkasan(wb: ExcelJS.Workbook, proposal: HasilProposal[], batchI
     row.getCell(5).fill = isi(ISI_STATUS["Memenuhi"]);
     row.getCell(6).fill = isi(ISI_STATUS["Memenuhi Sebagian"]);
     row.getCell(7).fill = isi(ISI_STATUS["Tidak Memenuhi"]);
-    row.getCell(8).font = { name: FONT, size: 11, bold: true, color: { argb: NAVY } };
     r++;
   }
 
   r += 1;
-  ws.mergeCells(`A${r}:H${r}`);
+  ws.mergeCells(`A${r}:G${r}`);
   const nota = ws.getCell(`A${r}`);
   nota.value =
-    `Skor = (jumlah "Memenuhi" + 0,5 × jumlah "Memenuhi Sebagian") ÷ ${proposal[0]?.evaluasi.length ?? 19} kriteria. ` +
     `Pagu pendanaan per proposal: Rp${PAGU_PENDANAAN.toLocaleString("id-ID")},00. ` +
     `Hasil ini adalah bantuan penyaringan administratif dan tetap memerlukan validasi peninjau.`;
   nota.font = { name: FONT, size: 9, italic: true, color: { argb: "FF5B6170" } };
