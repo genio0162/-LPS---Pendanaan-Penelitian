@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { toFile } from "@anthropic-ai/sdk";
-import { put } from "@vercel/blob";
+import { head, put } from "@vercel/blob";
 import { randomUUID } from "node:crypto";
 import { anthropic } from "@/lib/claude";
 import { ekstrakPdf, pdfHalamanTerpilih, tebakNamaTim } from "@/lib/pdf";
@@ -11,6 +11,96 @@ export const maxDuration = 120;
 
 const MAKS_BYTES = 25 * 1024 * 1024;
 
+class GalatMasukan extends Error {
+  constructor(
+    pesan: string,
+    public status: number,
+  ) {
+    super(pesan);
+  }
+}
+
+interface BerkasMasuk {
+  nama: string;
+  ukuran: number;
+  buffer: ArrayBuffer;
+  batchId: string;
+  /** Terisi bila PDF sudah diunggah browser langsung ke Vercel Blob. */
+  blobUrl: string | null;
+}
+
+/**
+ * Jalur utama: browser sudah mengunggah PDF ke Vercel Blob (lihat /api/unggah)
+ * dan hanya mengirim URL-nya. Fungsi Vercel membatasi body permintaan 4,5 MB,
+ * jadi proposal belasan MB tidak mungkin dikirim sebagai FormData.
+ *
+ * head() memakai token Blob milik portal, sehingga URL dari store lain — atau
+ * alamat sembarang yang disisipkan pemanggil — ditolak sebelum diunduh.
+ */
+async function dariBlob(req: Request): Promise<BerkasMasuk> {
+  const { blobUrl, namaBerkas, batchId } = (await req.json()) as {
+    blobUrl?: string;
+    namaBerkas?: string;
+    batchId?: string;
+  };
+  if (!blobUrl || !namaBerkas) {
+    throw new GalatMasukan("blobUrl dan namaBerkas wajib diisi.", 400);
+  }
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    throw new GalatMasukan("Vercel Blob belum tersambung pada deployment ini.", 503);
+  }
+
+  let info: Awaited<ReturnType<typeof head>>;
+  try {
+    info = await head(blobUrl);
+  } catch {
+    throw new GalatMasukan("Berkas unggahan tidak ditemukan di Vercel Blob portal ini.", 400);
+  }
+  if (!info.pathname.startsWith("proposal/")) {
+    throw new GalatMasukan("Lokasi berkas unggahan tidak sah.", 400);
+  }
+  if (info.size > MAKS_BYTES) {
+    throw new GalatMasukan(`Ukuran ${namaBerkas} melebihi batas 25 MB.`, 413);
+  }
+
+  const unduh = await fetch(info.url, { cache: "no-store" });
+  if (!unduh.ok) {
+    throw new GalatMasukan(`Gagal mengambil ${namaBerkas} dari Vercel Blob (${unduh.status}).`, 502);
+  }
+
+  return {
+    nama: namaBerkas,
+    ukuran: info.size,
+    buffer: await unduh.arrayBuffer(),
+    batchId: batchId || randomUUID().slice(0, 8),
+    blobUrl: info.url,
+  };
+}
+
+/** Jalur cadangan untuk server lokal tanpa Blob: PDF dikirim langsung sebagai FormData. */
+async function dariForm(req: Request): Promise<BerkasMasuk> {
+  const form = await req.formData();
+  const berkas = form.get("file");
+
+  if (!(berkas instanceof File)) {
+    throw new GalatMasukan("Berkas tidak ditemukan pada permintaan.", 400);
+  }
+  if (berkas.size > MAKS_BYTES) {
+    throw new GalatMasukan(`Ukuran ${berkas.name} melebihi batas 25 MB.`, 413);
+  }
+  if (!/\.pdf$/i.test(berkas.name) && berkas.type !== "application/pdf") {
+    throw new GalatMasukan("Hanya berkas PDF yang diterima.", 415);
+  }
+
+  return {
+    nama: berkas.name,
+    ukuran: berkas.size,
+    buffer: await berkas.arrayBuffer(),
+    batchId: String(form.get("batchId") ?? "") || randomUUID().slice(0, 8),
+    blobUrl: null,
+  };
+}
+
 /**
  * Tahap 1 — terima satu PDF, simpan ke Vercel Blob, ekstrak teksnya,
  * lalu catat ke Neon. Mengembalikan docId yang dipakai tahap analisis.
@@ -19,24 +109,17 @@ export async function POST(req: Request) {
   try {
     await pastikanSkema();
 
-    const form = await req.formData();
-    const berkas = form.get("file");
-    const batchId = String(form.get("batchId") ?? "") || randomUUID().slice(0, 8);
+    const jenis = req.headers.get("content-type") ?? "";
+    const masuk = jenis.includes("application/json") ? await dariBlob(req) : await dariForm(req);
+    const { buffer, batchId } = masuk;
+    const berkas = { name: masuk.nama, size: masuk.ukuran };
 
-    if (!(berkas instanceof File)) {
-      return NextResponse.json({ error: "Berkas tidak ditemukan pada permintaan." }, { status: 400 });
-    }
-    if (berkas.size > MAKS_BYTES) {
-      return NextResponse.json(
-        { error: `Ukuran ${berkas.name} melebihi batas 25 MB.` },
-        { status: 413 },
-      );
-    }
-    if (!/\.pdf$/i.test(berkas.name) && berkas.type !== "application/pdf") {
-      return NextResponse.json({ error: "Hanya berkas PDF yang diterima." }, { status: 415 });
+    // Tanda tangan berkas PDF selalu diawali "%PDF-"; nama berkas saja bisa menipu.
+    const kepala = new TextDecoder().decode(new Uint8Array(buffer, 0, Math.min(1024, buffer.byteLength)));
+    if (!kepala.includes("%PDF-")) {
+      return NextResponse.json({ error: `${berkas.name} bukan berkas PDF yang sah.` }, { status: 415 });
     }
 
-    const buffer = await berkas.arrayBuffer();
     const { teks, jumlahHalaman, judul, halamanKosong, perluPdfAsli } = await ekstrakPdf(buffer);
 
     if (teks.replace(/\[\[(?:HALAMAN \d+|TANPA LAPISAN TEKS[^\]]*)\]\]/g, "").trim().length < 400) {
@@ -48,9 +131,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // Blob bersifat opsional: portal tetap berfungsi sebelum integrasi disambungkan.
-    let blobUrl: string | null = null;
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
+    // Arsip ke Blob: sudah terjadi bila browser mengunggah langsung. Pada jalur
+    // FormData, Blob bersifat opsional — portal tetap berjalan tanpa arsip.
+    let blobUrl: string | null = masuk.blobUrl;
+    if (!blobUrl && process.env.BLOB_READ_WRITE_TOKEN) {
       try {
         const hasil = await put(`proposal/${batchId}/${berkas.name}`, buffer, {
           access: "public",
@@ -119,6 +203,9 @@ export async function POST(req: Request) {
       pdfDilampirkan: Boolean(fileId),
     });
   } catch (e) {
+    if (e instanceof GalatMasukan) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     const pesan = e instanceof Error ? e.message : "Kesalahan tidak dikenal.";
     console.error("[extract]", e);
     return NextResponse.json({ error: pesan }, { status: 500 });

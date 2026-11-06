@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { upload } from "@vercel/blob/client";
 import ParticleStage, { type KontrolPanggung } from "@/components/ParticleStage";
 import { TombolTema, useTema } from "@/components/tema";
 import { KOMPONEN_KAK, TAHAP_AKHIR, TAHAP_BERKAS } from "@/lib/kak";
@@ -34,6 +35,60 @@ interface Selesai {
 }
 
 type Fase = "unggah" | "proses" | "selesai";
+
+/** Jalur unggah yang tersedia di server, dilaporkan oleh GET /api/unggah. */
+interface JalurUnggah {
+  blob: boolean;
+  batasLangsungBytes: number | null;
+}
+
+/**
+ * Fungsi Vercel menolak body permintaan di atas 4,5 MB, jadi bila Vercel Blob
+ * tersambung PDF diunggah browser langsung ke Blob dan /api/extract hanya
+ * menerima URL-nya. FormData tetap dipakai untuk server lokal tanpa Blob.
+ */
+async function kirimKeEkstraksi(
+  b: BerkasTerpilih,
+  batchId: string,
+  jalur: JalurUnggah,
+  signal: AbortSignal,
+): Promise<Response> {
+  if (jalur.blob) {
+    let blobUrl: string;
+    try {
+      const hasil = await upload(`proposal/${batchId}/${b.nama}`, b.file, {
+        access: "public",
+        handleUploadUrl: "/api/unggah",
+        contentType: "application/pdf",
+        abortSignal: signal,
+      });
+      blobUrl = hasil.url;
+    } catch (e) {
+      if (signal.aborted) throw e;
+      throw new Error(
+        `Gagal mengunggah ${b.nama}: ${e instanceof Error ? e.message : "kesalahan tidak dikenal"}.`,
+      );
+    }
+    return fetch("/api/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ blobUrl, namaBerkas: b.nama, batchId }),
+      signal,
+    });
+  }
+
+  if (jalur.batasLangsungBytes !== null && b.file.size > jalur.batasLangsungBytes) {
+    const batasMb = Math.floor(jalur.batasLangsungBytes / 1048576);
+    throw new Error(
+      `${b.nama} lebih dari ${batasMb} MB. Sambungkan Vercel Blob pada proyek Vercel agar berkas sebesar ini bisa diproses.`,
+    );
+  }
+
+  const fd = new FormData();
+  fd.append("file", b.file);
+  fd.append("batchId", batchId);
+  return fetch("/api/extract", { method: "POST", body: fd, signal });
+}
 
 const TUTORIAL = [
   "Unggah sampai 5 proposal PDF",
@@ -137,20 +192,20 @@ export default function Beranda() {
     };
 
     try {
+      const rJalur = await fetch("/api/unggah", { signal: ac.signal });
+      const jalur: JalurUnggah = rJalur.ok
+        ? await rJalur.json()
+        : { blob: false, batasLangsungBytes: null };
+
       for (const [i, b] of berkas.entries()) {
         maju(i, 0, b.nama);
 
-        const fd = new FormData();
-        fd.append("file", b.file);
-        fd.append("batchId", batchId);
-
-        const rExtract = await fetch("/api/extract", {
-          method: "POST",
-          body: fd,
-          signal: ac.signal,
-        });
-        const dExtract = await rExtract.json();
-        if (!rExtract.ok) throw new Error(dExtract.error ?? `Gagal memproses ${b.nama}.`);
+        const rExtract = await kirimKeEkstraksi(b, batchId, jalur, ac.signal);
+        // Balasan galat dari platform (mis. "Request Entity Too Large") berupa teks, bukan JSON.
+        const dExtract = await rExtract.json().catch(() => ({}));
+        if (!rExtract.ok) {
+          throw new Error(dExtract.error ?? `Gagal memproses ${b.nama} (HTTP ${rExtract.status}).`);
+        }
 
         const segmen = ["kriteria", "ruang_lingkup"] as const;
         for (const [j, s] of segmen.entries()) {
@@ -199,7 +254,8 @@ export default function Beranda() {
       setFase("selesai");
       setProses(null);
     } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") {
+      // Unggahan Blob yang dibatalkan melempar BlobRequestAbortedError, bukan AbortError.
+      if (ac.signal.aborted) {
         setFase("unggah");
         setProses(null);
         pesan("Analisis dibatalkan.");
