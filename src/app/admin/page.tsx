@@ -18,7 +18,6 @@ interface RiwayatBaris {
   id: string;
   institusi: string;
   jumlah_berkas: number;
-  skor: number;
   status: string;
   tanggal: string;
   tim: string;
@@ -605,7 +604,6 @@ export default function PanelAdmin() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-4">
-                    <span className="font-[family-name:var(--font-display)] text-[21px]">{r.skor}%</span>
                     <span
                       className="whitespace-nowrap rounded-full px-[11px] py-[5px] font-[family-name:var(--font-mono)] text-[10px] tracking-[0.06em]"
                       style={{
