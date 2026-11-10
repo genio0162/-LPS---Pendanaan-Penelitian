@@ -52,8 +52,8 @@ export async function POST(req: Request) {
     if (!komponenId || !KOMPONEN_BY_ID.has(komponenId)) {
       return NextResponse.json({ error: "Komponen KAK tidak dikenal." }, { status: 400 });
     }
-    if (status !== "M" && status !== "S" && status !== "T") {
-      return NextResponse.json({ error: "Status harus M, S, atau T." }, { status: 400 });
+    if (status !== "M" && status !== "B") {
+      return NextResponse.json({ error: "Status harus M atau B." }, { status: 400 });
     }
     if (isi.length < 8) {
       return NextResponse.json(

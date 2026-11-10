@@ -32,18 +32,11 @@ const BLOK: { kode: KodeStatus; label: string; deskripsi: string; warna: string;
     contoh: "mis. daftar publikasi mencantumkan indeksasi Scopus Q3 secara eksplisit",
   },
   {
-    kode: "S",
-    label: "Memenuhi Sebagian",
-    deskripsi: "ciri kondisi yang hanya sebagian terpenuhi",
-    warna: "#E8B43D",
-    contoh: "mis. unsur ada namun tanpa keterangan indeksasi",
-  },
-  {
-    kode: "T",
-    label: "Tidak Memenuhi",
-    deskripsi: "ciri kondisi yang menggugurkan komponen",
+    kode: "B",
+    label: "Belum Memenuhi",
+    deskripsi: "ciri kondisi yang belum memenuhi ketentuan",
     warna: "#E06B62",
-    contoh: "mis. dokumen tidak dilampirkan sama sekali",
+    contoh: "mis. profil ketua ada tetapi daftar publikasi tidak dicantumkan",
   },
 ];
 
@@ -55,7 +48,7 @@ export default function PanelAdmin() {
   const [baris, setBaris] = useState<Baris[]>([]);
   const [riwayat, setRiwayat] = useState<RiwayatBaris[]>([]);
   const [pilih, setPilih] = useState(KOMPONEN_KAK[6].id); // "Rekam jejak publikasi"
-  const [draf, setDraf] = useState<Record<KodeStatus, string>>({ M: "", S: "", T: "" });
+  const [draf, setDraf] = useState<Record<KodeStatus, string>>({ M: "", B: "" });
   const [memuat, setMemuat] = useState(true);
   const [galat, setGalat] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -164,7 +157,6 @@ export default function PanelAdmin() {
   );
 
   const komponenTerpilih = KOMPONEN_KAK.find((k) => k.id === pilih) ?? KOMPONEN_KAK[0];
-  const poinTerpilih = POIN_KAK.find((p) => p.kode === komponenTerpilih.poin);
   const hitung = useCallback(
     (komponenId: string) => baris.filter((b) => b.komponen_id === komponenId).length,
     [baris],
@@ -429,13 +421,7 @@ export default function PanelAdmin() {
                 <div className="mb-2.5 font-[family-name:var(--font-display)] text-[21px] font-medium tracking-[-0.02em] sm:text-[25px]">
                   {komponenTerpilih.nama}
                 </div>
-                <div className="text-[13px] leading-[1.65]" style={{ color: "var(--mute2)" }}>
-                  {poinTerpilih?.acuan}
-                </div>
-                <div
-                  className="mt-3 border-t pt-3 text-[12.5px] leading-[1.6]"
-                  style={{ borderColor: "var(--line)", color: "var(--fg3)" }}
-                >
+                <div className="text-[13px] leading-[1.65]" style={{ color: "var(--fg3)" }}>
                   <span style={{ color: "var(--mute3)" }}>Kriteria screening: </span>
                   {komponenTerpilih.kriteria}
                 </div>

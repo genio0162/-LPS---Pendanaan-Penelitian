@@ -45,7 +45,7 @@ async function bangunSkema(): Promise<void> {
     CREATE TABLE IF NOT EXISTS heuristik (
       id          SERIAL PRIMARY KEY,
       komponen_id TEXT NOT NULL,
-      status      CHAR(1) NOT NULL CHECK (status IN ('M', 'S', 'T')),
+      status      CHAR(1) NOT NULL CONSTRAINT heuristik_status_biner CHECK (status IN ('M', 'B')),
       teks        TEXT NOT NULL,
       urutan      INTEGER NOT NULL DEFAULT 0,
       dibuat      TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -109,14 +109,43 @@ async function bangunSkema(): Promise<void> {
       dibuat       TIMESTAMPTZ NOT NULL DEFAULT now()
     )`;
 
+  // Basis data versi awal memakai tiga status (M / S / T). Sejak status dibuat
+  // biner, S dan T sama-sama menjadi "Belum Memenuhi". Migrasi ini hanya bekerja
+  // sekali; setelah constraint baru terpasang, blok ini cukup memeriksa katalog.
+  // duplicate_object menandakan instans lain baru saja menyelesaikannya.
+  await q`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'heuristik'::regclass AND conname = 'heuristik_status_biner'
+      ) THEN
+        ALTER TABLE heuristik DROP CONSTRAINT IF EXISTS heuristik_status_check;
+        UPDATE heuristik SET status = 'B' WHERE status IN ('S', 'T');
+        ALTER TABLE heuristik ADD CONSTRAINT heuristik_status_biner CHECK (status IN ('M', 'B'));
+        UPDATE hasil_evaluasi SET status = 'Belum Memenuhi'
+          WHERE status IN ('Memenuhi Sebagian', 'Tidak Memenuhi');
+      END IF;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$`;
+
   const [{ jumlah }] = (await q`SELECT COUNT(*)::int AS jumlah FROM heuristik`) as {
     jumlah: number;
   }[];
-  if (jumlah === 0) await semaiHeuristik();
+  if (jumlah === 0) await kueriSemai(q);
 }
 
-async function semaiHeuristik(): Promise<void> {
+/**
+ * Mengganti SELURUH pengetahuan admin dengan SEED_HEURISTIK dalam satu transaksi,
+ * termasuk baris yang ditambahkan lewat panel. Dipakai `npm run suntik`.
+ */
+export async function suntikUlangHeuristik(): Promise<void> {
+  await pastikanSkema();
   const q = sql();
+  await q.transaction([q`DELETE FROM heuristik`, kueriSemai(q)]);
+}
+
+function kueriSemai(q: ReturnType<typeof sql>) {
   const komponenIds: string[] = [];
   const statuses: string[] = [];
   const teksList: string[] = [];
@@ -132,10 +161,8 @@ async function semaiHeuristik(): Promise<void> {
       });
     }
   }
-  if (!komponenIds.length) return;
-
   // Satu INSERT massal lewat UNNEST — jauh lebih hemat round-trip daripada per baris.
-  await q`
+  return q`
     INSERT INTO heuristik (komponen_id, status, teks, urutan)
     SELECT * FROM UNNEST(
       ${komponenIds}::text[],

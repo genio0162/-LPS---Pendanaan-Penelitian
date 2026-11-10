@@ -39,35 +39,37 @@ Inti dari portal ini. Model bahasa umum tidak mengenal nomenklatur SINTA maupun
 aturan PPN/PPh Indonesia, dan tidak tahu kebiasaan peninjau di lembar screening.
 Verifikator menyuntikkan pengetahuan itu lewat `/admin`.
 
-Untuk setiap kriteria screening, admin menulis **ciri kondisi** pada tiga kotak —
-*Memenuhi*, *Memenuhi Sebagian*, *Tidak Memenuhi*. Jumlah baris per kotak bebas.
-Baris ini dirakit ke dalam blok XML `<pengetahuan_admin>` pada system prompt, dan
-model wajib mengikutinya: bila bukti dokumen cocok dengan sebuah ciri, status
-itulah yang ditetapkan.
+Setiap kriteria dinilai dengan dua status: **Memenuhi** atau **Belum Memenuhi**.
+"Belum Memenuhi" mencakup unsur yang tidak ada maupun unsur yang ada tetapi belum
+lengkap — keduanya berarti peserta masih perlu memperbaiki proposalnya.
+
+Untuk setiap kriteria screening, admin menulis **ciri kondisi** pada dua kotak —
+*Memenuhi* dan *Belum Memenuhi*. Jumlah baris per kotak bebas. Baris ini dirakit
+ke dalam blok XML `<pengetahuan_admin>` pada system prompt, dan model wajib
+mengikutinya: bila bukti dokumen cocok dengan sebuah ciri, status itulah yang
+ditetapkan.
 
 ### Pengetahuan bawaan
 
-Portal terpasang dengan **73 baris pengetahuan** yang disemai otomatis, disusun
-dari tiga sumber yang saling menguatkan:
+Portal terpasang dengan **64 baris pengetahuan** — salinan dokumen **Kriteria KAK**
+yang memuat, untuk setiap kriteria, ciri kondisi Memenuhi dan Belum Memenuhi.
+Dokumen itu disusun dari tiga sumber yang saling menguatkan:
 
 1. bunyi ketentuan KAK poin 7 sampai 8.3;
-2. lembar **Kriteria Screening** — 19 kriteria beserta status yang tersedia untuk
-   masing-masing (sebagian biner *Memenuhi / Tidak Memenuhi*, sebagian tiga status);
+2. lembar **Kriteria Screening** — 19 kriteria;
 3. hasil **cross-check manual atas tiga proposal FEB UI 2026** — Riyanto, Rulindo,
    dan Wulandari — termasuk alasan peninjau menaikkan atau menurunkan status.
 
-Baris yang berasal dari sumber ketiga ditandai `[kalibrasi]`. Baris itu ada supaya
-putusan model sejalan dengan kebiasaan peninjau, bukan sekadar pembacaan harfiah
-KAK. Contohnya:
+Sebagian baris ada supaya putusan model sejalan dengan kebiasaan peninjau, bukan
+sekadar pembacaan harfiah KAK. Contohnya:
 
-| Kriteria | Status | Ciri kondisi `[kalibrasi]` |
+| Kriteria | Status | Ciri kondisi |
 |---|---|---|
 | Ringkasan eksekutif | Memenuhi | Lembar screening memakai kriteria *minimal* 1 halaman, jadi ringkasan yang meluber ke halaman berikutnya tetap Memenuhi |
 | Latar belakang dan rumusan masalah | Memenuhi | Rumusan masalah tidak wajib berupa subbab tersendiri; cukup bila masalahnya dapat dikenali dari narasi |
-| Rekam jejak publikasi | Memenuhi Sebagian | Profil ketua ada tetapi tanpa daftar publikasi → penanda untuk ditelusuri manual di SINTA/Scopus, bukan penggugur |
-| Penentuan Tema | Memenuhi | Sampel boleh di sektor riil (UMKM) sepanjang pertanyaan penelitiannya menyangkut tugas dan fungsi LPS |
-| Pemenuhan etika penelitian | Tidak Memenuhi | Pernyataan kebenaran data pada daftar riwayat hidup BUKAN pernyataan etika penelitian |
-| Rencana anggaran biaya | Memenuhi Sebagian | Total sedikit di bawah pagu tetap dinilai sesuai pagu; yang menurunkan status adalah struktur pajaknya |
+| Rekam jejak publikasi | Belum Memenuhi | Profil ketua ada tetapi tanpa daftar publikasi → kekurangan kelengkapan administratif yang dapat diperbaiki peserta |
+| Pemenuhan etika penelitian | Belum Memenuhi | Pernyataan kebenaran data pada daftar riwayat hidup BUKAN pernyataan etika penelitian |
+| Rencana anggaran biaya | Belum Memenuhi | Nominal sesuai pagu tetapi tanpa pemisahan DPP, PPN 11%, atau PPh 21/23 → disertai catatan perbaikan pajak |
 
 Kolom **"Ciri Kondisi Admin yang Terpakai"** di Excel menampilkan baris mana yang
 dipakai untuk setiap putusan, sehingga setiap status dapat ditelusuri kembali ke
@@ -104,10 +106,10 @@ Wulandari untuk memperoleh isi 3 halaman berarti membayar ~84.000 token alih-ali
 ~6.000.
 
 Dampaknya terukur. Pada proposal Wulandari, halaman 2, 9, dan 18 adalah pindaian;
-halaman 18 memuat baris total RAB. Tanpa lampiran PDF, sistem menilai RAB
-"Tidak Memenuhi" karena rinciannya tampak terpotong. Dengan lampiran, sistem
-membaca total Rp100.000.000,00 dan menilai "Memenuhi Sebagian" — sama dengan
-peninjau manusia.
+halaman 18 memuat baris total RAB. Tanpa lampiran PDF, sistem mengira rincian RAB
+terpotong dan totalnya tidak ada. Dengan lampiran, sistem membaca total
+Rp100.000.000,00 lalu menilai RAB dari struktur pajaknya — sama dengan peninjau
+manusia.
 
 ---
 
@@ -115,27 +117,35 @@ peninjau manusia.
 
 `npm run verifikasi` menjalankan pipeline penuh di luar server, membandingkan
 putusan AI dengan lembar `Cross Check_Evaluasi FEB UI_GPS.xlsx`, lalu melaporkan
-pemakaian token dan biaya nyata.
+pemakaian token dan biaya nyata. Lembar manual itu masih memakai tiga status;
+*Memenuhi Sebagian* dan *Tidak Memenuhi* di sana dihitung sebagai *Belum Memenuhi*.
 
 ```bash
 npm run verifikasi -- "/path/Proposal.pdf" riyanto hasil.xlsx
 ```
 
 Angka di bawah diukur pada konfigurasi bawaan — `claude-sonnet-5`, effort
-`medium`, pengetahuan admin bawaan, tanpa penyetelan per proposal:
+`medium`, pengetahuan bawaan dari dokumen Kriteria KAK, tanpa penyetelan per
+proposal:
 
 | Proposal | Halaman | Halaman pindaian | Kecocokan | Biaya |
 |---|---|---|---|---|
-| Riyanto — Fintech vs Bank | 37 | — | **19/19 (100%)** | $0,236 |
-| Rulindo — Digital Panic in Islamic Banking | 23 | 2, 22 | **19/19 (100%)** | $0,141 |
-| Wulandari — Bank Guarantees to SME Risk-Taking | 42 | 2, 9, 18 | **18/19 (95%)** | $0,263 |
-| **Total satu batch berisi tiga proposal** | | | **56/57 (98%)** | **$0,64** |
+| Riyanto — Fintech vs Bank | 37 | — | **19/19 (100%)** | $0,279 |
+| Rulindo — Digital Panic in Islamic Banking | 23 | 2, 22 | **17/19 (89%)** | $0,177 |
+| Wulandari — Bank Guarantees to SME Risk-Taking | 42 | 2, 9, 18 | **19/19 (100%)** | $0,311 |
+| **Total tiga proposal** | | | **55/57 (96%)** | **$0,77** |
 
-Satu selisih yang tersisa pada proposal Wulandari adalah "Tinjauan pustaka dan
-kebaruan": lembar manual menilai *Memenuhi Sebagian* dengan catatan tinjauan
-pustaka tidak tersedia, sedangkan AI menemukan subbab "State of the art" berisi
-sintesis literatur beserta rujukannya pada halaman 8-12 dan menilai *Memenuhi*.
-Setelah dicek ke dokumen asli, subbab itu memang ada.
+Kedua selisih ada pada proposal Rulindo dan bersumber dari hal yang sama:
+surel anggota tim memakai domain tazkia.ac.id, sedangkan profilnya menyebut
+mengajar di UI. Ciri Belum Memenuhi pada dokumen Kriteria KAK — "salah satu dari
+tim berasal dari institusi di luar perguruan tinggi terkait" — membuat AI menilai
+*Tim kolaboratif* dan *Anggota civitas akademika* sebagai *Belum Memenuhi*,
+sedangkan peninjau manual menilai keduanya *Memenuhi*. Bila peninjau tetap pada
+putusannya, satu ciri Memenuhi baru di panel sudah cukup untuk menyelaraskannya.
+
+Ketiga proposal ini juga menjadi sumber sebagian ciri kondisi, jadi angka di atas
+mengukur konsistensi dengan peninjau, belum ketelitian pada proposal yang belum
+pernah dilihat.
 
 ### Bagaimana angka ini naik dari 88% ke 100%
 
@@ -145,13 +155,12 @@ Tiga perubahan, semuanya di pengetahuan dan struktur — bukan model yang lebih 
    Dua baris cross-check menggabungkan kriteria yang sebenarnya terpisah, dan
    penggabungan itu memaksa satu status untuk dua pertanyaan berbeda.
 2. **Kriteria "ringkasan eksekutif" berbunyi *minimal* 1 halaman**, bukan *maksimal*
-   seperti pada KAK. Sebelum ini diketahui, sistem menilai ringkasan yang meluber
-   ke halaman berikutnya sebagai *Memenuhi Sebagian* — lebih ketat daripada praktik
-   peninjau yang sebenarnya.
-3. **Ciri kondisi [kalibrasi] dari putusan nyata peninjau.** Contohnya: rumusan
-   masalah tidak wajib berupa subbab tersendiri; profil ketua tanpa daftar publikasi
-   dinilai *Memenuhi Sebagian* sebagai penanda untuk ditelusuri manual, bukan
-   *Tidak Memenuhi*.
+   seperti pada KAK. Sebelum ini diketahui, sistem menurunkan status ringkasan yang
+   meluber ke halaman berikutnya — lebih ketat daripada praktik peninjau yang
+   sebenarnya.
+3. **Ciri kondisi dari putusan nyata peninjau.** Contohnya: rumusan masalah tidak
+   wajib berupa subbab tersendiri; pernyataan kebenaran data pada daftar riwayat
+   hidup bukan pernyataan etika penelitian.
 
 ---
 
@@ -186,7 +195,7 @@ Empat keputusan yang membuat selisihnya:
   dengan biaya sekitar 2,4x lebih murah. Naikkan lewat `CLAUDE_MODEL=claude-opus-5`
   bila memang dibutuhkan.
 
-Prefiks sistem (acuan KAK + seluruh pengetahuan admin, sekitar 13.000 token)
+Prefiks sistem (acuan KAK + seluruh pengetahuan admin, sekitar 11.000 token)
 di-*cache* lintas proposal, jadi batch berisi beberapa berkas membayarnya sekali
 lalu membacanya dengan harga 0,1x.
 
@@ -202,11 +211,12 @@ proposal pertama membayar prefiks itu penuh.
 
 Tiga lembar, mengikuti struktur lembar cross-check manual:
 
-1. **Ringkasan** — satu baris per proposal, hitungan M/S/T dan skor.
+1. **Ringkasan** — satu baris per proposal, berisi jumlah kriteria Memenuhi dan
+   Belum Memenuhi.
 2. **Validasi vs Manual** — 19 baris per proposal: Poin KAK, komponen, hasil
    evaluasi, rujukan halaman, temuan dan analisis, ciri kondisi admin yang
    terpakai, rekomendasi perbaikan, dan status akhir. Kolom status diberi latar
-   bersyarat: hijau (Memenuhi), kuning (Memenuhi Sebagian), merah muda (Tidak Memenuhi).
+   bersyarat: hijau (Memenuhi) dan merah muda (Belum Memenuhi).
 3. **Tujuan dan Ruang Lingkup** — tujuan penelitian, objek, periode pengamatan,
    variabel fokus, batasan wilayah, dan metode analisis.
 
@@ -245,8 +255,14 @@ Buka <http://localhost:3000>. Panel admin ada di `/admin`.
    lebih dulu membuat permintaan pertama jauh lebih cepat.
 
 Pengetahuan bawaan disemai otomatis saat permintaan pertama menyentuh basis data
-yang tabel `heuristik`-nya masih kosong. Untuk menyemai ulang setelah pengetahuan
-bawaan di kode berubah, kosongkan tabelnya: `DELETE FROM heuristik;`
+yang tabel `heuristik`-nya masih kosong. Untuk menimpanya setelah pengetahuan
+bawaan di kode berubah — misalnya setelah dokumen Kriteria KAK direvisi —
+jalankan `npm run suntik -- --ya` dengan `DATABASE_URL` yang menunjuk ke basis
+data tujuan. Baris tambahan dari panel ikut terhapus.
+
+Basis data yang dibuat versi tiga status (M / S / T) dimigrasikan otomatis pada
+permintaan pertama: S dan T menjadi B (Belum Memenuhi), begitu pula status lama
+pada tabel `hasil_evaluasi`.
 
 ### Catatan durasi fungsi
 
@@ -288,6 +304,7 @@ src/
     db.ts                 Neon + pembuatan skema otomatis
 db/schema.sql             skema untuk dijalankan di Neon SQL Editor
 scripts/verifikasi.ts     uji silang AI vs cross-check manual
+scripts/suntik-pengetahuan.ts  menimpa pengetahuan admin dengan pengetahuan bawaan
 ```
 
 ---

@@ -212,7 +212,7 @@ function blokAcuanKAK(): string {
 function blokHeuristik(peta: PetaHeuristik): string {
   const isi = KOMPONEN_KAK.map((k) => {
     const perStatus = peta[k.id] ?? {};
-    const blokStatus = (["M", "S", "T"] as const)
+    const blokStatus = (["M", "B"] as const)
       .map((s) => {
         const baris = perStatus[s] ?? [];
         if (!baris.length) return "";
@@ -226,12 +226,9 @@ function blokHeuristik(peta: PetaHeuristik): string {
       blokStatus ||
       '    <status nilai="catatan">\n      <ciri>Admin belum menyuntikkan ciri kondisi untuk komponen ini. Nilai murni berdasarkan bunyi kriteria screening.</ciri>\n    </status>';
 
-    const lazim = k.statusLazim.map((s) => STATUS_DARI_KODE[s]).join(" / ");
-
     return (
       `  <komponen id="${k.id}" nama="${escapeXml(k.nama)}" poin="${k.poin}">\n` +
-      `    <kriteria_screening>${escapeXml(k.kriteria)}</kriteria_screening>\n` +
-      `    <status_tersedia>${lazim}</status_tersedia>\n${badan}\n  </komponen>`
+      `    <kriteria_screening>${escapeXml(k.kriteria)}</kriteria_screening>\n${badan}\n  </komponen>`
     );
   }).join("\n");
 
@@ -253,18 +250,17 @@ const ATURAN = `<aturan_penilaian>
 1. Nilai HANYA berdasarkan isi dokumen proposal di dalam <dokumen_proposal> dan berkas
    lampiran bila ada. Jangan pernah mengarang temuan, nama, angka, nama jurnal, status
    indeksasi, atau nomor halaman.
-2. <pengetahuan_admin> adalah pedoman lokal yang WAJIB diikuti dan lebih berwibawa daripada
+2. Hanya ada dua status: "Memenuhi" dan "Belum Memenuhi". "Belum Memenuhi" dipakai baik untuk
+   unsur yang tidak ditemukan maupun unsur yang ada tetapi belum lengkap atau belum sesuai
+   ketentuan — keduanya berarti peserta masih perlu memperbaiki proposalnya.
+3. <pengetahuan_admin> adalah pedoman lokal yang WAJIB diikuti dan lebih berwibawa daripada
    pembacaan harfiah Anda sendiri. Bila bukti dokumen cocok dengan sebuah <ciri> pada status
-   tertentu, tetapkan status tersebut. Ciri bertanda [kalibrasi] berasal dari putusan peninjau
-   manusia pada kasus nyata — patuhi, sekalipun naluri Anda menyarankan status lain.
-3. <status_tersedia> menunjukkan status yang lazim dipakai pada lembar screening untuk komponen
-   itu. Untuk komponen biner "Memenuhi / Tidak Memenuhi", hindari "Memenuhi Sebagian" kecuali
-   ada <ciri> admin yang secara khusus menyebutkannya. PENTING: pada komponen biner, bukti yang
-   tidak sempurna tetapi menunjukkan unsurnya ADA berarti "Memenuhi", bukan "Tidak Memenuhi".
-   "Tidak Memenuhi" hanya untuk unsur yang benar-benar tidak terpenuhi atau tidak ditemukan.
-4. Bila sebuah unsur tidak ditemukan setelah menelusuri seluruh dokumen termasuk lampiran,
-   tetapkan "Tidak Memenuhi" dan isi halaman dengan "Seluruh dokumen". Jangan menetapkan
-   "Memenuhi Sebagian" hanya karena Anda ragu.
+   tertentu, tetapkan status tersebut, sekalipun naluri Anda menyarankan status lain.
+4. Bila tidak ada <ciri> yang cocok, nilai terhadap bunyi <kriteria_screening>: "Memenuhi" bila
+   seluruh unsur yang diminta kriteria ada, walaupun penyajiannya tidak sempurna; "Belum
+   Memenuhi" bila ada unsur yang tidak ditemukan atau tidak sesuai ketentuan. Bila sebuah unsur
+   tidak ditemukan setelah menelusuri seluruh dokumen termasuk lampiran, isi halaman dengan
+   "Seluruh dokumen".
 5. Rujukan halaman diambil dari penanda [[HALAMAN n]] pada teks. Sebut rentang bila unsur
    tersebar, contoh "Hal 13-16". Jangan menyebut nomor halaman yang tidak ada penandanya.
 6. Halaman bertanda [[TANPA LAPISAN TEKS]] adalah hasil pindaian, BUKAN halaman kosong.
@@ -281,8 +277,8 @@ const ATURAN = `<aturan_penilaian>
 9. Isi "analisis" lebih dahulu sebagai penalaran, baru tetapkan "status". Tulis ringkas —
    satu sampai dua kalimat sudah cukup. "status" WAJIB konsisten dengan kesimpulan "analisis":
    bila analisis menyatakan unsurnya terpenuhi, status harus "Memenuhi"; bila analisis menyatakan
-   unsurnya tidak ada, status harus "Tidak Memenuhi". Periksa ulang konsistensi ini sebelum
-   mengeluarkan setiap entri.
+   unsurnya tidak ada atau belum lengkap, status harus "Belum Memenuhi". Periksa ulang konsistensi
+   ini sebelum mengeluarkan setiap entri.
 10. Seluruh keluaran dalam Bahasa Indonesia baku, ringkas, dan faktual.
 </aturan_penilaian>`;
 
@@ -490,7 +486,7 @@ function rapikanEvaluasi(
         kutipan: "-",
         analisis: "Model tidak mengembalikan penilaian untuk kriteria ini. Perlu reviu manual.",
         heuristik_terpakai: [],
-        status: "Memenuhi Sebagian" as const,
+        status: "Belum Memenuhi" as const,
       };
     }
     return {

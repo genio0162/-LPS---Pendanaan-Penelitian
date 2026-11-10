@@ -75,7 +75,7 @@ export async function POST(req: Request) {
           kutipan: e?.kutipan ?? "-",
           analisis: e?.analisis ?? "Komponen ini belum dianalisis. Perlu reviu manual.",
           heuristik_terpakai: Array.isArray(e?.heuristik) ? e.heuristik : [],
-          status: e?.status ?? "Memenuhi Sebagian",
+          status: e?.status ?? "Belum Memenuhi",
         };
       });
 
@@ -100,14 +100,11 @@ export async function POST(req: Request) {
     });
 
     const totalKomponen = proposal.reduce((n, p) => n + p.evaluasi.length, 0) || 1;
-    const bobot = proposal.reduce(
-      (n, p) =>
-        n +
-        p.evaluasi.filter((e) => e.status === "Memenuhi").length +
-        p.evaluasi.filter((e) => e.status === "Memenuhi Sebagian").length * 0.5,
+    const memenuhi = proposal.reduce(
+      (n, p) => n + p.evaluasi.filter((e) => e.status === "Memenuhi").length,
       0,
     );
-    const skor = Math.round((bobot / totalKomponen) * 100);
+    const skor = Math.round((memenuhi / totalKomponen) * 100);
 
     await q`
       UPDATE batch

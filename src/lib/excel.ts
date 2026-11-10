@@ -10,14 +10,12 @@ const GARIS = "FFBFC7D2";
 
 const ISI_STATUS: Record<StatusValidasi, string> = {
   Memenuhi: "FFD4EDDA",
-  "Memenuhi Sebagian": "FFFFF3CD",
-  "Tidak Memenuhi": "FFF8D7DA",
+  "Belum Memenuhi": "FFF8D7DA",
 };
 
 const TEKS_STATUS: Record<StatusValidasi, string> = {
   Memenuhi: "FF17603A",
-  "Memenuhi Sebagian": "FF7A5B00",
-  "Tidak Memenuhi": "FF8C1D18",
+  "Belum Memenuhi": "FF8C1D18",
 };
 
 const FONT = "Calibri";
@@ -97,14 +95,13 @@ function lembarRingkasan(wb: ExcelJS.Workbook, proposal: HasilProposal[], batchI
     { key: "tim", width: 26 },
     { key: "judul", width: 58 },
     { key: "berkas", width: 34 },
-    { key: "m", width: 11 },
-    { key: "s", width: 17 },
-    { key: "t", width: 15 },
+    { key: "m", width: 12 },
+    { key: "b", width: 16 },
   ];
 
   judulLembar(
     ws,
-    "G",
+    "F",
     "Ringkasan Hasil Evaluasi Proposal",
     `Program Pendanaan Penelitian LPS - FEB UI · KAK-1/GRIS/2026 poin 7 s.d. 8.3 · ` +
       `Batch ${batchId} · Dihasilkan ${new Date().toLocaleString("id-ID")}`,
@@ -116,19 +113,17 @@ function lembarRingkasan(wb: ExcelJS.Workbook, proposal: HasilProposal[], batchI
     "Judul Penelitian",
     "Berkas",
     "Memenuhi",
-    "Memenuhi Sebagian",
-    "Tidak Memenuhi",
+    "Belum Memenuhi",
   ];
   kepalaTabel(ws, 5, 34);
 
   let r = 6;
   for (const [i, p] of proposal.entries()) {
     const m = p.evaluasi.filter((e) => e.status === "Memenuhi").length;
-    const s = p.evaluasi.filter((e) => e.status === "Memenuhi Sebagian").length;
-    const t = p.evaluasi.filter((e) => e.status === "Tidak Memenuhi").length;
+    const b = p.evaluasi.length - m;
 
     const row = ws.getRow(r);
-    row.values = [i + 1, p.nama_tim, p.judul, p.nama_berkas, m, s, t];
+    row.values = [i + 1, p.nama_tim, p.judul, p.nama_berkas, m, b];
     row.height = 30;
     row.eachCell((cell, col) => {
       cell.font = { name: FONT, size: 10.5 };
@@ -140,13 +135,12 @@ function lembarRingkasan(wb: ExcelJS.Workbook, proposal: HasilProposal[], batchI
       };
     });
     row.getCell(5).fill = isi(ISI_STATUS["Memenuhi"]);
-    row.getCell(6).fill = isi(ISI_STATUS["Memenuhi Sebagian"]);
-    row.getCell(7).fill = isi(ISI_STATUS["Tidak Memenuhi"]);
+    row.getCell(6).fill = isi(ISI_STATUS["Belum Memenuhi"]);
     r++;
   }
 
   r += 1;
-  ws.mergeCells(`A${r}:G${r}`);
+  ws.mergeCells(`A${r}:F${r}`);
   const nota = ws.getCell(`A${r}`);
   nota.value =
     `Pagu pendanaan per proposal: Rp${PAGU_PENDANAAN.toLocaleString("id-ID")},00. ` +

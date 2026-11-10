@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "verifikasi": "tsx scripts/verifikasi.ts"
+    "verifikasi": "tsx scripts/verifikasi.ts",
+    "suntik": "tsx scripts/suntik-pengetahuan.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",

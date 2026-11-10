@@ -11,12 +11,12 @@
 -- ---------------------------------------------------------------------
 -- 1. Pengetahuan Admin Fine-Tuner
 --    Satu baris = satu ciri kondisi untuk satu komponen KAK pada satu status.
---    status: 'M' = Memenuhi, 'S' = Memenuhi Sebagian, 'T' = Tidak Memenuhi
+--    status: 'M' = Memenuhi, 'B' = Belum Memenuhi
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS heuristik (
   id          SERIAL PRIMARY KEY,
   komponen_id TEXT    NOT NULL,
-  status      CHAR(1) NOT NULL CHECK (status IN ('M', 'S', 'T')),
+  status      CHAR(1) NOT NULL CONSTRAINT heuristik_status_biner CHECK (status IN ('M', 'B')),
   teks        TEXT    NOT NULL,
   urutan      INTEGER NOT NULL DEFAULT 0,
   dibuat      TIMESTAMPTZ NOT NULL DEFAULT now()
